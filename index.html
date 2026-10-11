@@ -1709,6 +1709,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     if (!castEl.hidden) { if (k === 'escape') closeCast(); return; }
     if (!scenesEl.hidden) { if (k === 'escape') closeScenes(); return; }
     if (!remoteEl.hidden) { if (k === 'escape') closeRemote(); return; }
+    if (!optsEl.hidden) { if (k === 'escape') closeOpts(); return; }
     if (e.target instanceof HTMLInputElement && /^(text|time)$/.test(e.target.type)) return; // typing is not a shortcut
     const onControl = e.target instanceof Element && e.target.closest('button,input');
     if (k === ' ' && !onControl) { e.preventDefault(); togglePause(); }
