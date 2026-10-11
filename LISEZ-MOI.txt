@@ -1,0 +1,13 @@
+JEUX DE LUMIÈRE — version à mettre en ligne
+
+Le micro des téléphones et tablettes ne fonctionne que sur une adresse https.
+Mettez ce dossier en ligne tel quel (tous les fichiers, avec le sous-dossier vendor), par exemple :
+
+  • Netlify Drop : https://app.netlify.com/drop — glissez le dossier dans la page.
+  • GitHub Pages : créez un dépôt, déposez les fichiers, puis
+    Settings > Pages > Deploy from a branch > main.
+
+Ensuite, ouvrez l'adresse sur le téléphone ou la tablette :
+  • iPhone / iPad (Safari) : Partager > Sur l'écran d'accueil.
+  • Android (Chrome) : menu ⋮ > Installer l'application.
+L'application s'ouvre alors en plein écran et marche même hors connexion.
