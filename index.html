@@ -1067,44 +1067,72 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     ctx.beginPath(); ctx.moveTo(bx, 0); ctx.lineTo(bx, by - br); ctx.stroke();
   }
 
-  // LED chaser: a truss of PAR cans along the top, stepping through patterns on the beat
-  const CHN = 8, CHL = new Float32Array(CHN);
-  let chStep = 0, chPat = 0;
+  // Chaser: a truss of moving-head spots. Lamps light up in patterns on the beat (changing every 16 beats)
+  // while the heads swing through formations (changing every 32 beats). A very strong kick lights the whole rig.
+  const CHN = 10, CHL = new Float32Array(CHN), CHA = new Float32Array(CHN);
+  let chStep = 0, chPat = 0, chForm = 0, chHit = 0;
   function chaseOn(i) {
-    const s = chStep;
+    const s = chStep, n = CHN;
     switch (chPat) {
-      case 0: return i === s % CHN;                                   // run
-      case 1: { const p = s % (2 * CHN - 2); return i === (p < CHN ? p : 2 * CHN - 2 - p); } // ping-pong
-      case 2: return (i + s) % 2 === 0;                               // odd / even
-      case 3: return i === (s % (CHN / 2)) || i === CHN - 1 - (s % (CHN / 2)); // in-out
-      default: return true;                                           // all
+      case 0: return (i - (s % n) + n) % n < 3;                                   // a group of three runs along
+      case 1: { const p = s % (2 * n - 2), q = p < n ? p : 2 * n - 2 - p; return Math.abs(i - q) <= 1; } // ping-pong
+      case 2: return (i + s) % 2 === 0;                                           // odd / even
+      case 3: { const k = s % (n / 2); return i === n / 2 - 1 - k || i === n / 2 + k; } // from the centre outwards
+      default: return true;                                                       // everything
+    }
+  }
+  function beamAngle(i) {
+    const u = i / (CHN - 1) - 0.5, t = S.t;
+    switch (chForm) {
+      case 0: return u * 1.2 * (0.55 + 0.45 * Math.sin(t * 0.9));                // fan that opens and closes
+      case 1: return (i % 2 ? 1 : -1) * (0.3 + 0.25 * Math.sin(t * 1.3));        // crossing pairs
+      case 2: return Math.sin(t * 1.4 + i * 0.6) * 0.5;                           // wave along the truss
+      default: return Math.sin(t * 0.8) * 0.65;                                   // all sweep together
     }
   }
   function sceneChase(dt) {
-    if (S.beatFlag) { chStep++; if (chStep % 16 === 0) chPat = (chPat + 1) % 5; }
-    const top = H * 0.08, gap = W / CHN;
-    for (let i = 0; i < CHN; i++) {
-      CHL[i] = chaseOn(i) ? Math.max(CHL[i], 0.4 + 0.6 * S.bass) : CHL[i] * Math.exp(-dt * 7);
-      const v = CHL[i], x = gap * (i + 0.5), h = S.hue + i * (360 / CHN);
-      // beam
-      const L = H * 1.05, wTop = gap * 0.18, wBot = gap * (0.55 + 0.25 * v);
-      const g = ctx.createLinearGradient(0, top, 0, top + L);
-      g.addColorStop(0, col(h, 95, 60, 0.35 * v));
-      g.addColorStop(1, col(h, 95, 55, 0.02 * v));
-      ctx.fillStyle = g;
-      ctx.beginPath(); ctx.moveTo(x - wTop, top); ctx.lineTo(x + wTop, top); ctx.lineTo(x + wBot, top + L); ctx.lineTo(x - wBot, top + L); ctx.closePath(); ctx.fill();
-      // pool of light on the floor
-      const fy = H * 0.94, fr = gap * (0.7 + 0.3 * v);
-      const fg = ctx.createRadialGradient(x, fy, 0, x, fy, fr);
-      fg.addColorStop(0, col(h, 95, 65, 0.4 * v)); fg.addColorStop(1, col(h, 95, 55, 0));
-      ctx.fillStyle = fg; ctx.beginPath(); ctx.ellipse(x, fy, fr, fr * 0.28, 0, 0, 6.283); ctx.fill();
-      // the can itself
-      const lr = gap * 0.2;
-      ctx.fillStyle = col(h, 30 + 60 * v, 18 + 70 * v, 0.95);
-      ctx.beginPath(); ctx.arc(x, top, lr, 0, 6.283); ctx.fill();
+    if (S.beatFlag) {
+      chStep++;
+      if (chStep % 16 === 0) chPat = (chPat + 1) % 5;
+      if (chStep % 32 === 0) chForm = (chForm + 1) % 4;
+      if (S.bass > 0.85) chHit = MOT;
     }
-    ctx.fillStyle = col(S.hue, 10, 30, 0.5);
-    ctx.fillRect(0, top - gap * 0.26, W, 3);
+    chHit *= Math.exp(-dt * 4);
+    const top = H * 0.07, gap = W / CHN, L = Math.hypot(W, H) * 1.1, fy = H * 0.95;
+    const wash = ctx.createRadialGradient(W / 2, H * 0.9, 0, W / 2, H * 0.9, Math.max(W, H) * 0.7);
+    wash.addColorStop(0, col(S.hue, 80, 45, 0.04 + 0.07 * S.bass)); wash.addColorStop(1, col(S.hue, 80, 45, 0));
+    ctx.fillStyle = wash; ctx.fillRect(0, 0, W, H);
+    for (let i = 0; i < CHN; i++) {
+      const on = chaseOn(i) || chHit > 0.5;
+      CHL[i] = on ? Math.max(CHL[i], 0.5 + 0.5 * S.bass) : CHL[i] * Math.exp(-dt * 6);
+      CHA[i] += (beamAngle(i) - CHA[i]) * (1 - Math.exp(-dt * 5));
+      const v = CHL[i], x = gap * (i + 0.5), h = S.hue + i * (360 / CHN), a = CHA[i];
+      if (v > 0.02) {
+        ctx.save(); ctx.translate(x, top); ctx.rotate(-a);
+        const w = L * Math.tan(0.06 + 0.04 * v);
+        const g = ctx.createLinearGradient(0, 0, 0, L);
+        g.addColorStop(0, col(h, 95, 68, 0.45 * v)); g.addColorStop(0.55, col(h, 95, 55, 0.1 * v)); g.addColorStop(1, col(h, 95, 50, 0));
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.moveTo(-gap * 0.07, 0); ctx.lineTo(gap * 0.07, 0); ctx.lineTo(w, L); ctx.lineTo(-w, L); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = col(h, 100, 85, 0.14 * v);
+        ctx.beginPath(); ctx.moveTo(-2, 0); ctx.lineTo(2, 0); ctx.lineTo(w * 0.25, L); ctx.lineTo(-w * 0.25, L); ctx.closePath(); ctx.fill();
+        ctx.restore();
+        const fx = x + Math.tan(a) * (fy - top);
+        if (fx > -gap && fx < W + gap) {
+          const fr = gap * (0.7 + 0.4 * v), fg = ctx.createRadialGradient(fx, fy, 0, fx, fy, fr);
+          fg.addColorStop(0, col(h, 95, 70, 0.45 * v)); fg.addColorStop(1, col(h, 95, 55, 0));
+          ctx.fillStyle = fg; ctx.beginPath(); ctx.ellipse(fx, fy, fr, fr * 0.25, 0, 0, 6.283); ctx.fill();
+        }
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = 'rgb(22,20,36)';
+      ctx.fillRect(x - gap * 0.17, top - gap * 0.2, gap * 0.34, gap * 0.15);
+      ctx.globalCompositeOperation = 'lighter';
+      const lr = gap * 0.12, lg = ctx.createRadialGradient(x, top, 0, x, top, lr * 2.6);
+      lg.addColorStop(0, col(h, 40 + 55 * v, 22 + 70 * v, 1)); lg.addColorStop(0.35, col(h, 95, 60, 0.5 * v)); lg.addColorStop(1, col(h, 95, 50, 0));
+      ctx.fillStyle = lg; ctx.beginPath(); ctx.arc(x, top, lr * 2.6, 0, 6.283); ctx.fill();
+    }
+    ctx.fillStyle = col(S.hue, 10, 35, 0.6); ctx.fillRect(0, top - gap * 0.22, W, 3);
   }
 
   // Laser sheet: a fan of beams from one side that tilts through the haze; a mirrored fan joins on strong passages
@@ -1131,32 +1159,66 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     if (second > 0.01) fan(W + 6, H * 0.45, -1, -tilt, S.hue + 240, second);
   }
 
-  // Dance floor: a lit tile floor in perspective, a new random pattern on every beat
-  const FC = 8, FR = 7, FT = new Float32Array(FC * FR), FH = new Float32Array(FC * FR);
-  function sceneFloor(dt) {
-    if (S.beatFlag || FT.every((v) => v < 0.05)) {
-      for (let i = 0; i < FT.length; i++) if (Math.random() < 0.38) { FT[i] = 1; FH[i] = S.hue + Math.floor(Math.random() * 4) * 70; }
+  // Dance floor: glass tiles in perspective. The pattern changes every 16 beats; lit tiles throw light up into the haze.
+  const FC = 9, FR = 8, FT = new Float32Array(FC * FR), FH = new Float32Array(FC * FR);
+  let flPat = 0, flStep = 0;
+  function floorLit(c, r) {
+    const s = flStep, cc = (FC - 1) / 2;
+    switch (flPat) {
+      case 0: return Math.random() < 0.35;                                           // random
+      case 1: return (c + r + s) % 2 === 0;                                          // checkerboard
+      case 2: return Math.round(Math.hypot(c - cc, (FR - 1 - r) * 1.3)) === s % 8;   // ripple from the front centre
+      case 3: return FR - 1 - r < S.spec[Math.min(NB - 1, Math.floor(Math.abs(c - cc) / cc * 30))] * FR * 1.2; // spectrum
+      default: return c === s % FC || r === FR - 1 - (s % FR);                       // crossing lines
     }
-    const hy = H * 0.38, by = H * 1.02, topW = W * 0.5, botW = W * 1.6;
-    const P = (c, r) => { // perspective: rows bunch up near the horizon
-      const t = Math.pow(r / FR, 1.6), y = hy + (by - hy) * t, w = topW + (botW - topW) * t;
-      return [W / 2 - w / 2 + w * c / FC, y];
-    };
+  }
+  function sceneFloor(dt) {
+    if (S.beatFlag) {
+      flStep++;
+      if (flStep % 16 === 0) flPat = (flPat + 1) % 5;
+    }
+    const seed = !flStep && FT.every((v) => v < 0.05);
     for (let r = 0; r < FR; r++) for (let c = 0; c < FC; c++) {
       const i = r * FC + c;
-      FT[i] *= Math.exp(-dt * 2.6);
-      const v = 0.08 + FT[i] * (0.55 + 0.45 * S.level);
-      const a = P(c, r), b = P(c + 1, r), d = P(c + 1, r + 1), e = P(c, r + 1);
-      const inset = 0.08;
-      const lerp = (p, q, k) => [p[0] + (q[0] - p[0]) * k, p[1] + (q[1] - p[1]) * k];
-      const A = lerp(a, d, inset), B = lerp(b, e, inset), D = lerp(d, a, inset), E = lerp(e, b, inset);
-      ctx.fillStyle = col(FH[i] || S.hue, 90, 30 + 35 * FT[i], v);
-      ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.lineTo(D[0], D[1]); ctx.lineTo(E[0], E[1]); ctx.closePath(); ctx.fill();
+      FT[i] *= Math.exp(-dt * (flPat === 3 ? 7 : 2.4));
+      if (flPat === 3) { if (floorLit(c, r)) { FT[i] = Math.max(FT[i], 0.85); FH[i] = S.hue + (FR - 1 - r) * 22; } }
+      else if ((S.beatFlag || seed) && floorLit(c, r)) {
+        FT[i] = 1;
+        FH[i] = S.hue + (flPat === 0 ? Math.floor(Math.random() * 4) * 70 : (c + r) * 16 + flStep * 12);
+      }
     }
-    // glow rising off the floor
-    const g = ctx.createLinearGradient(0, hy, 0, 0);
-    g.addColorStop(0, col(S.hue, 90, 55, 0.03 + 0.06 * S.bass)); g.addColorStop(1, col(S.hue, 90, 50, 0));
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, hy);
+    const hy = H * 0.42, by = H * 1.02, topW = W * 0.55, botW = W * 1.7;
+    const P = (c, r) => {
+      const t = Math.pow(r / FR, 1.5), y = hy + (by - hy) * t, w = topW + (botW - topW) * t;
+      return [W / 2 - w / 2 + w * c / FC, y];
+    };
+    const lerp = (p, q, k) => [p[0] + (q[0] - p[0]) * k, p[1] + (q[1] - p[1]) * k];
+    const quad = (a, b, d, e) => { ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.lineTo(d[0], d[1]); ctx.lineTo(e[0], e[1]); ctx.closePath(); };
+    // back wall: a soft glow on the horizon
+    const wall = ctx.createLinearGradient(0, hy, 0, 0);
+    wall.addColorStop(0, col(S.hue, 85, 50, 0.03 + 0.05 * S.bass)); wall.addColorStop(1, col(S.hue, 85, 50, 0));
+    ctx.fillStyle = wall; ctx.fillRect(0, 0, W, hy);
+    for (let r = 0; r < FR; r++) for (let c = 0; c < FC; c++) {
+      const i = r * FC + c, v = FT[i], h = FH[i] || S.hue;
+      const a = P(c, r), b = P(c + 1, r), d = P(c + 1, r + 1), e = P(c, r + 1);
+      // light column rising from a lit tile
+      if (v > 0.15) {
+        const tw = (b[0] - a[0]) * 0.8, cx = (a[0] + b[0]) / 2, ch = H * (0.12 + 0.3 * v) * (0.5 + r / FR);
+        const g = ctx.createLinearGradient(0, a[1], 0, a[1] - ch);
+        g.addColorStop(0, col(h, 90, 60, 0.07 * v)); g.addColorStop(1, col(h, 90, 55, 0));
+        ctx.fillStyle = g; ctx.fillRect(cx - tw / 2, a[1] - ch, tw, ch);
+      }
+      // tile: dark glass, bright core when lit, glowing edge
+      const A = lerp(a, d, 0.06), B = lerp(b, e, 0.06), D = lerp(d, a, 0.06), E = lerp(e, b, 0.06);
+      ctx.fillStyle = col(h, 85, 22 + 38 * v, 0.12 + 0.7 * v);
+      quad(A, B, D, E); ctx.fill();
+      if (v > 0.05) {
+        ctx.strokeStyle = col(h, 100, 75, 0.55 * v); ctx.lineWidth = 1.5; ctx.stroke();
+        const A2 = lerp(a, d, 0.3), B2 = lerp(b, e, 0.3), D2 = lerp(d, a, 0.3), E2 = lerp(e, b, 0.3);
+        ctx.fillStyle = col(h, 60, 80, 0.35 * v);
+        quad(A2, B2, D2, E2); ctx.fill();
+      }
+    }
   }
 
   // Aurora: slow curtains of light; brightness follows the music, nothing flashes
