@@ -161,6 +161,13 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
 .check { display: flex; gap: 10px; align-items: center; min-height: 40px; }
 .check input { width: 20px; height: 20px; accent-color: var(--accent); }
 
+/* remote control */
+.screen-box { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-top: 10px; }
+.qr { background: #fff; padding: 8px; border-radius: 8px; line-height: 0; }
+.qr svg, .qr img { display: block; width: 180px; height: 180px; }
+.code { margin: 2px 0 6px; font: 700 34px/1 var(--f-mono); letter-spacing: 0.18em; color: #fff; }
+#remoteCode { text-transform: uppercase; letter-spacing: 0.15em; font-family: var(--f-mono); }
+
 /* scene picker */
 .scene-name { min-width: 15ch; max-width: 60vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .picks { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 6px; }
@@ -209,7 +216,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
   <header class="hud top">
     <div class="brand">
       <h1>Jeux de lumière</h1>
-      <p class="status"><span class="dot" id="dot"></span><span id="statusText">Aperçu sans son</span><span class="bpm" id="bpm" hidden></span></p>
+      <p class="status"><span class="dot" id="dot"></span><span id="statusText">Aperçu sans son</span><span class="bpm" id="bpm" hidden></span><span class="bpm" id="remoteBadge" hidden></span></p>
     </div>
     <div class="meters" aria-hidden="true">
       <div class="meter"><b><i id="mBass"></i></b><span>Graves</span></div>
@@ -250,11 +257,48 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
       <button type="button" id="bPal" aria-label="Changer la palette de couleurs">Couleurs : Arc-en-ciel</button>
       <button type="button" id="bFull">Plein écran</button>
       <button type="button" id="bCast" class="primary">Sur la TV</button>
+      <button type="button" id="bRemote">Télécommande</button>
       <button type="button" id="bOpts">Options</button>
       <button type="button" id="bSave" hidden>Version autonome</button>
     </div>
   </section>
   <input type="file" id="fileIn" accept="audio/*" multiple hidden>
+
+  <div class="sheet" id="remoteSheet" role="dialog" aria-modal="true" aria-labelledby="remoteTitle" hidden>
+    <div class="sheet-card">
+      <div class="sheet-head">
+        <h2 id="remoteTitle">Télécommande</h2>
+        <button type="button" id="remoteClose" aria-label="Fermer">Fermer</button>
+      </div>
+      <p class="fit">Le téléphone écoute la musique avec son micro et pilote l’écran branché sur la TV : scènes, couleurs, message. Pas besoin de recopie d’écran ; les deux appareils ont juste besoin d’internet.</p>
+      <p class="warn" id="remoteFrameNote" hidden>La télécommande fonctionne dans l’application en ligne (adresse GitHub), pas dans cet aperçu.</p>
+
+      <h3>1. Sur l’appareil branché à la TV</h3>
+      <button type="button" id="bBeScreen" class="primary">Cet appareil est l’écran</button>
+      <div class="screen-box" id="screenBox" hidden>
+        <div class="qr" id="screenQr" aria-label="QR code à scanner avec le téléphone"></div>
+        <div>
+          <p class="fit">Code de l’écran</p>
+          <p class="code" id="screenCode">·····</p>
+          <p class="fit" id="screenStatus">En attente du téléphone…</p>
+        </div>
+      </div>
+
+      <h3>2. Sur le téléphone</h3>
+      <p class="fit">Scannez le QR code avec l’appareil photo, ou tapez le code affiché sur l’écran.</p>
+      <div class="fields">
+        <label class="field" for="remoteCode"><span>Code de l’écran</span>
+          <input id="remoteCode" type="text" maxlength="5" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="K7Q2M">
+        </label>
+        <button type="button" id="bConnect" class="primary">Se connecter</button>
+      </div>
+      <p class="fit" id="remoteStatus" role="status" aria-live="polite"></p>
+      <div class="fields">
+        <button type="button" id="bRemoteMic" hidden>Lancer le micro</button>
+        <button type="button" id="bDisconnect" hidden>Déconnecter</button>
+      </div>
+    </div>
+  </div>
 
   <div class="sheet" id="optsSheet" role="dialog" aria-modal="true" aria-labelledby="optsTitle" hidden>
     <div class="sheet-card">
@@ -431,6 +475,26 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
   function resetNoiseFloor() { NF.b = NF.m = NF.h = 1; NFS.fill(1); }
   // tempo: median gap between detected beats, folded into the 80-170 BPM dance range
   const BPM = { iv: [] };
+
+  /* ---------- remote control: shared state (the UI is wired up further down) ----------
+     The phone ("remote") listens with its mic, sends its analysis ~30 times a second and decides the scenes;
+     the device on the TV ("screen") draws from those frames. */
+  const RC = { peer: null, conn: null, role: null, code: '', lastSend: 0, beat: false, applying: false };
+  const REM = { frame: null, at: 0, beat: false };
+  function rcSend(msg) { try { if (RC.conn && RC.conn.open) RC.conn.send(msg); } catch (e) {} }
+  function remoteTell(msg) { if (RC.role === 'remote' && !RC.applying) rcSend(msg); }
+  function remoteSync() { if (RC.role === 'remote' && RC.conn && !RC.applying) rcSend(Object.assign({ t: 'state' }, stateForRemote())); }
+  const r2 = (x) => Math.round(x * 100) / 100;
+  function sendFrame(tb, tm, th, now, isBeat) {
+    if (isBeat) RC.beat = true; // never lose a beat between two sends
+    if (now - RC.lastSend < 33) return;
+    RC.lastSend = now;
+    const ts = new Array(NB), wv = new Array(64);
+    for (let j = 0; j < NB; j++) ts[j] = r2(TS[j]);
+    for (let i = 0; i < 64; i++) wv[i] = r2(WV[Math.floor(i * WN / 64)]);
+    rcSend({ t: 'f', tb: r2(tb), tm: r2(tm), th: r2(th), loud: r2(S.loud || 0), ts, wv, beat: RC.beat });
+    RC.beat = false;
+  }
   function tempo() {
     if (BPM.iv.length < 6) return 0;
     const s = BPM.iv.slice().sort((a, b) => a - b);
@@ -648,8 +712,15 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
   /* ---------- analysis ---------- */
   function analyse(dt, now) {
     let tb = 0, tm = 0, th = 0;
-    const live = A.mode !== 'idle' && !A.paused && A.analyser;
-    if (live) {
+    // on the screen side of a remote pair, the phone's analysis replaces local audio
+    const rem = A.mode === 'remote' && REM.frame && now - REM.at < 1500;
+    const live = !rem && A.mode !== 'idle' && A.mode !== 'remote' && !A.paused && A.analyser;
+    if (rem) {
+      const f = REM.frame;
+      tb = f.tb; tm = f.tm; th = f.th; S.loud = f.loud;
+      TS.set(f.ts);
+      for (let i = 0; i < WN; i++) { const x = i / WN * 63, k = Math.floor(x), u = x - k; WV[i] = f.wv[k] * (1 - u) + f.wv[Math.min(63, k + 1)] * u; }
+    } else if (live) {
       A.analyser.getByteFrequencyData(A.freq);
       const d = A.freq, bin = A.ctx.sampleRate / A.analyser.fftSize, top = d.length - 1;
       const avg = (f0, f1) => {
@@ -695,7 +766,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
       for (let i = 0; i < WN; i++) { const x = (w[s0 + i * 2] - 128) / 128; WV[i] = x; if (Math.abs(x) > wm) wm = Math.abs(x); }
       AG.w = Math.max(AG.w * decay, wm, 0.06);
       for (let i = 0; i < WN; i++) WV[i] = clamp(WV[i] / AG.w * 0.9 * S.gain, -1, 1);
-    } else if (A.mode === 'idle') {
+    } else if (A.mode === 'idle' || A.mode === 'remote') {
       // silent preview so the stage is alive before any source is chosen
       const t = now / 1000, ph = (t * 100 / 60) % 1, k = Math.exp(-ph * 5.5);
       tb = 0.2 + 0.75 * k;
@@ -718,14 +789,19 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     S.bass = sm(S.bass, tb); S.mid = sm(S.mid, tm); S.high = sm(S.high, th);
     for (let j = 0; j < NB; j++) S.spec[j] = sm(S.spec[j], TS[j]);
     S.level = S.bass * 0.5 + S.mid * 0.3 + S.high * 0.2;
-    if (!live) S.loud = S.level;
+    if (!live && !rem) S.loud = S.level;
 
     S.beatFlag = false;
     AG.avg += (tb - AG.avg) * (1 - Math.exp(-dt * 2.2));
-    if (live && now - AG.last > 4000) BPM.iv.length = 0; // music stopped: forget the old tempo
-    if (tb > AG.prev + 0.015 && tb > 0.4 && tb > AG.avg * 1.2 + 0.05 && now - AG.last > 280) {
+    const heard = live || rem;
+    if (heard && now - AG.last > 4000) BPM.iv.length = 0; // music stopped: forget the old tempo
+    let isBeat;
+    if (rem) { isBeat = REM.beat; REM.beat = false; } // the phone detects the beats
+    else isBeat = tb > AG.prev + 0.015 && tb > 0.4 && tb > AG.avg * 1.2 + 0.05 && now - AG.last > 280;
+    if (live && RC.conn && RC.role === 'remote') sendFrame(tb, tm, th, now, isBeat);
+    if (isBeat) {
       const gap = now - AG.last;
-      if (live && gap < 1500) { BPM.iv.push(gap); if (BPM.iv.length > 16) BPM.iv.shift(); }
+      if (heard && gap < 1500) { BPM.iv.push(gap); if (BPM.iv.length > 16) BPM.iv.shift(); }
       AG.last = now; S.beat = MOT; S.beats++; S.beatFlag = true;
       if (S.beats % 4 === 0) S.hueTarget = (S.hueTarget + 47) % 360;
     }
@@ -1451,11 +1527,13 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     const md = name === 'milkdrop';
     mdCv.hidden = !md; cv.hidden = md; $('bPreset').hidden = !md;
     if (ORDER.includes(name)) lastIn[CALM.includes(name) ? 'calm' : 'loud'] = name;
+    remoteTell({ t: 'scene', current: name, sel, dur });
     sceneLabel();
   }
   function chooseScene(name) {
     sel = name;
     store.set('scene', name);
+    remoteSync();
     document.querySelectorAll('[data-scene]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.scene === sel)));
     sceneLabel();
     if (name === 'auto') {
@@ -1504,7 +1582,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
       else if (calmMode && (energy > 0.38 || drop)) calmMode = false;
     } else calmMode = false;
     if (wasCalm !== calmMode) sceneLabel();
-    if (sel !== 'auto') return;
+    if (sel !== 'auto' || (RC.role === 'screen' && RC.conn)) return; // a paired screen follows the phone's scene choices
     sceneT += dt;
     const pool = autoPool();
     const due = (S.beats - beatsAtSwitch >= 32 && sceneT > 12) || sceneT > (calmMode ? 45 : 30);
@@ -1576,7 +1654,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     bFile.setAttribute('aria-pressed', String(A.mode === 'file'));
     bMic.setAttribute('aria-pressed', String(A.mode === 'mic'));
     bTab.setAttribute('aria-pressed', String(A.mode === 'tab'));
-    bPlay.hidden = A.mode === 'idle';
+    bPlay.hidden = A.mode === 'idle' || A.mode === 'remote';
     bPlay.textContent = A.paused ? 'Reprendre' : 'Pause';
     bNext.hidden = !(A.mode === 'file' && F.list.length > 1);
   }
@@ -1630,7 +1708,8 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     const k = e.key.toLowerCase();
     if (!castEl.hidden) { if (k === 'escape') closeCast(); return; }
     if (!scenesEl.hidden) { if (k === 'escape') closeScenes(); return; }
-    if (!optsEl.hidden) { if (k === 'escape') closeOpts(); return; }
+    if (!remoteEl.hidden) { if (k === 'escape') closeRemote(); return; }
+    if (e.target instanceof HTMLInputElement && /^(text|time)$/.test(e.target.type)) return; // typing is not a shortcut
     const onControl = e.target instanceof Element && e.target.closest('button,input');
     if (k === ' ' && !onControl) { e.preventDefault(); togglePause(); }
     else if (k === 'f') bFull.click();
@@ -1732,6 +1811,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
       const id = star.dataset.star;
       if (autoSet.has(id)) autoSet.delete(id); else autoSet.add(id);
       try { localStorage.setItem('jdl.autoSet', JSON.stringify([...autoSet])); } catch (err) {}
+      remoteSync();
       paintStars();
       return;
     }
@@ -1763,6 +1843,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     pal = PALETTES.find((p) => p.id === id) || PALETTES[0];
     bPal.textContent = 'Couleurs : ' + pal.name;
     store.set('palette', pal.id);
+    remoteSync();
   }
   function nextPalette() { setPalette(PALETTES[(PALETTES.indexOf(pal) + 1) % PALETTES.length].id); }
   bPal.addEventListener('click', nextPalette);
@@ -1870,18 +1951,175 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
   msgText.value = OPT.text; msgMode.value = OPT.mode; cdTime.value = OPT.cd;
   if (REDUCE) { strobeBox.disabled = true; $('strobeNote').hidden = false; }
   msgText.addEventListener('input', () => {
-    OPT.text = msgText.value.trim(); store.set('msgText', OPT.text);
+    OPT.text = msgText.value.trim(); store.set('msgText', OPT.text); remoteSync();
     if (OPT.text && OPT.mode === 'off') { OPT.mode = msgMode.value = 'always'; store.set('msgMode', 'always'); }
   });
-  msgMode.addEventListener('change', () => { OPT.mode = msgMode.value; msgClock = 0; store.set('msgMode', OPT.mode); });
-  cdTime.addEventListener('change', () => { OPT.cd = cdTime.value; store.set('cdTime', OPT.cd); });
-  $('cdClear').addEventListener('click', () => { OPT.cd = cdTime.value = ''; store.set('cdTime', ''); });
-  strobeBox.addEventListener('change', () => { OPT.strobe = strobeBox.checked && !REDUCE; });
+  msgMode.addEventListener('change', () => { OPT.mode = msgMode.value; msgClock = 0; store.set('msgMode', OPT.mode); remoteSync(); });
+  cdTime.addEventListener('change', () => { OPT.cd = cdTime.value; store.set('cdTime', OPT.cd); remoteSync(); });
+  $('cdClear').addEventListener('click', () => { OPT.cd = cdTime.value = ''; store.set('cdTime', ''); remoteSync(); });
+  strobeBox.addEventListener('change', () => { OPT.strobe = strobeBox.checked && !REDUCE; remoteSync(); });
   function openOpts() { optsEl.hidden = false; $('optsClose').focus(); wake(); }
   function closeOpts() { optsEl.hidden = true; $('bOpts').focus(); wake(); }
   $('bOpts').addEventListener('click', openOpts);
   $('optsClose').addEventListener('click', closeOpts);
   optsEl.addEventListener('click', (e) => { if (e.target === optsEl) closeOpts(); });
+
+  /* ---------- remote control: pairing and messages ----------
+     Pairing goes through the free PeerJS relay (only to introduce the two devices); after that the
+     phone and the screen talk directly over WebRTC. */
+  const remoteEl = $('remoteSheet'), remoteStatus = $('remoteStatus'), remoteBadge = $('remoteBadge');
+  const RC_ABC = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  const RC_SRC = MD_LOCAL
+    ? ['vendor/peerjs.min.js', 'vendor/qrcode.js']
+    : ['https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js', 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js'];
+  let rcLoad = null;
+  function loadRemoteLibs() {
+    if (!rcLoad) rcLoad = (async () => { for (const s of RC_SRC) await loadScript(s); })().catch((e) => { rcLoad = null; throw e; });
+    return rcLoad;
+  }
+  const peerId = (code) => 'jeux-de-lumiere-' + code.toLowerCase();
+  const peerOpts = () => Object.assign({ debug: 0 }, window.JDL_PEER || {}); // JDL_PEER: test hook for a local relay
+  function newCode() {
+    let c = '';
+    for (const x of crypto.getRandomValues(new Uint8Array(5))) c += RC_ABC[x % RC_ABC.length];
+    return c;
+  }
+  function stateForRemote() {
+    return { sel, palette: pal.id, autoSet: [...autoSet], opt: { text: OPT.text, mode: OPT.mode, cd: OPT.cd, strobe: OPT.strobe } };
+  }
+  function setBadge(text) { remoteBadge.hidden = !text; remoteBadge.textContent = text || ''; }
+  function rcReset() {
+    try { if (RC.conn) RC.conn.close(); } catch (e) {}
+    try { if (RC.peer) RC.peer.destroy(); } catch (e) {}
+    const wasScreen = RC.role === 'screen';
+    RC.peer = RC.conn = null; RC.role = null; REM.frame = null;
+    setBadge(''); $('screenBox').hidden = true; $('bRemoteMic').hidden = true; $('bDisconnect').hidden = true;
+    if (wasScreen && A.mode === 'remote') { A.mode = 'idle'; A.label = ''; updateUI(); }
+  }
+  function peerErrorText(err) {
+    const t = err && err.type;
+    if (t === 'peer-unavailable') return 'Écran introuvable. Vérifiez le code, et que l’écran l’affiche toujours.';
+    if (t === 'browser-incompatible') return 'Ce navigateur ne permet pas la télécommande. Essayez Chrome ou Safari à jour.';
+    if (t === 'network' || t === 'server-error' || t === 'socket-error' || t === 'socket-closed') return 'Le service de mise en relation ne répond pas. Vérifiez la connexion internet, puis réessayez.';
+    return 'La connexion a échoué. Réessayez.';
+  }
+  function markScene() {
+    document.querySelectorAll('[data-scene]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.scene === sel)));
+    sceneLabel();
+  }
+  function applyState(m) {
+    if (typeof m.sel === 'string' && (m.sel === 'auto' || SCENE_NAMES[m.sel])) { sel = m.sel; markScene(); }
+    if (typeof m.palette === 'string') setPalette(m.palette);
+    if (Array.isArray(m.autoSet)) { autoSet = new Set(m.autoSet.filter((id) => ORDER.includes(id))); paintStars(); }
+    if (m.opt && typeof m.opt === 'object') {
+      OPT.text = String(m.opt.text || '').slice(0, 80);
+      OPT.mode = ['off', 'always', 'cycle', 'drop'].includes(m.opt.mode) ? m.opt.mode : OPT.mode;
+      OPT.cd = /^\d{2}:\d{2}$/.test(m.opt.cd || '') ? m.opt.cd : '';
+      OPT.strobe = !!m.opt.strobe && !REDUCE;
+      msgText.value = OPT.text; msgMode.value = OPT.mode; cdTime.value = OPT.cd; strobeBox.checked = OPT.strobe;
+    }
+  }
+  function onRemoteMessage(m) {
+    if (!m || typeof m !== 'object' || RC.role !== 'screen') return;
+    if (m.t === 'f') {
+      if (!Array.isArray(m.ts) || m.ts.length !== NB || !Array.isArray(m.wv) || m.wv.length !== 64) return;
+      REM.frame = m; REM.at = performance.now(); if (m.beat) REM.beat = true;
+      return;
+    }
+    RC.applying = true;
+    try {
+      if (m.t === 'state') applyState(m);
+      else if (m.t === 'scene') {
+        if (typeof m.sel === 'string' && (m.sel === 'auto' || SCENE_NAMES[m.sel])) { sel = m.sel; markScene(); }
+        const dur = Math.min(3, Math.max(0.2, Number(m.dur) || 0.8));
+        if (m.current === 'milkdrop') ensureMD().then((ok) => { if (ok) cutTo('milkdrop'); });
+        else if (SCENE_FN[m.current]) cutTo(m.current, dur);
+      }
+    } finally { RC.applying = false; }
+  }
+  async function beScreen() {
+    rcReset();
+    remoteStatus.textContent = 'Préparation…';
+    try { await loadRemoteLibs(); } catch (e) { remoteStatus.textContent = 'Chargement impossible. Vérifiez la connexion internet.'; return; }
+    RC.role = 'screen'; RC.code = newCode();
+    const peer = new window.Peer(peerId(RC.code), peerOpts()); RC.peer = peer;
+    peer.on('open', () => {
+      if (RC.peer !== peer) return;
+      $('screenBox').hidden = false; $('screenCode').textContent = RC.code;
+      $('screenStatus').textContent = 'En attente du téléphone…';
+      const q = qrcode(0, 'M');
+      q.addData(location.origin + location.pathname + '?r=' + RC.code); q.make();
+      $('screenQr').innerHTML = q.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+      remoteStatus.textContent = '';
+      setBadge('Écran ' + RC.code);
+      stopSource(); A.mode = 'remote'; A.paused = false; A.label = 'Écran télécommandé · en attente du téléphone'; updateUI();
+    });
+    peer.on('connection', (conn) => {
+      if (RC.conn && RC.conn !== conn) { try { RC.conn.close(); } catch (e) {} } // one phone at a time; the newest wins
+      RC.conn = conn;
+      conn.on('open', () => {
+        $('screenStatus').textContent = 'Téléphone connecté';
+        A.label = 'Écran télécommandé · téléphone connecté'; updateUI();
+        note('Téléphone connecté : il pilote maintenant cet écran.');
+      });
+      conn.on('data', onRemoteMessage);
+      conn.on('close', () => {
+        if (RC.conn !== conn) return;
+        RC.conn = null; REM.frame = null;
+        $('screenStatus').textContent = 'Téléphone déconnecté. En attente…';
+        A.label = 'Écran télécommandé · en attente du téléphone'; updateUI();
+      });
+    });
+    peer.on('error', (err) => {
+      if (RC.peer !== peer) return;
+      if (err && err.type === 'unavailable-id') { beScreen(); return; } // code already taken: draw another one
+      remoteStatus.textContent = peerErrorText(err);
+    });
+    peer.on('disconnected', () => { if (RC.peer === peer) { try { peer.reconnect(); } catch (e) {} } }); // keep the code reachable
+  }
+  async function connectTo(raw) {
+    const code = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (code.length !== 5) { remoteStatus.textContent = 'Le code fait 5 caractères, comme affiché sur l’écran.'; return; }
+    rcReset();
+    remoteStatus.textContent = 'Connexion…';
+    try { await loadRemoteLibs(); } catch (e) { remoteStatus.textContent = 'Chargement impossible. Vérifiez la connexion internet.'; return; }
+    RC.role = 'remote'; RC.code = code;
+    const peer = new window.Peer(peerOpts()); RC.peer = peer;
+    peer.on('open', () => {
+      if (RC.peer !== peer) return;
+      const conn = peer.connect(peerId(code), { serialization: 'json' }); RC.conn = conn;
+      conn.on('open', () => {
+        remoteStatus.textContent = 'Connecté à l’écran ' + code + '. Lancez le micro pour que l’écran suive la musique.';
+        setBadge('Télécommande · ' + code);
+        $('bRemoteMic').hidden = A.mode === 'mic'; $('bDisconnect').hidden = false;
+        remoteSync(); rcSend({ t: 'scene', current, sel, dur: 0.8 });
+      });
+      conn.on('close', () => {
+        if (RC.conn !== conn) return;
+        RC.conn = null; setBadge(''); $('bRemoteMic').hidden = true;
+        remoteStatus.textContent = 'Connexion à l’écran perdue. Retapez le code pour la rétablir.';
+      });
+    });
+    peer.on('error', (err) => { if (RC.peer === peer) remoteStatus.textContent = peerErrorText(err); });
+  }
+  function openRemote() { remoteEl.hidden = false; $('remoteClose').focus(); wake(); }
+  function closeRemote() { remoteEl.hidden = true; $('bRemote').focus(); wake(); }
+  $('bRemote').addEventListener('click', openRemote);
+  $('remoteClose').addEventListener('click', closeRemote);
+  remoteEl.addEventListener('click', (e) => { if (e.target === remoteEl) closeRemote(); });
+  $('bBeScreen').addEventListener('click', beScreen);
+  $('bConnect').addEventListener('click', () => connectTo($('remoteCode').value));
+  $('remoteCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') connectTo($('remoteCode').value); });
+  $('bRemoteMic').addEventListener('click', async () => { await startMic(); if (A.mode === 'mic') $('bRemoteMic').hidden = true; });
+  $('bDisconnect').addEventListener('click', () => { rcReset(); remoteStatus.textContent = 'Déconnecté.'; });
+  if (inFrame || !window.RTCPeerConnection) {
+    $('remoteFrameNote').hidden = false;
+    $('bBeScreen').disabled = true; $('bConnect').disabled = true;
+  } else {
+    // opened by scanning the screen's QR code: connect straight away
+    const qsCode = new URLSearchParams(location.search).get('r');
+    if (qsCode) { $('remoteCode').value = qsCode; history.replaceState(null, '', location.pathname); openRemote(); connectTo(qsCode); }
+  }
 
   const savedGain = Number(store.get('gain'));
   if (savedGain >= 50 && savedGain <= 200) { $('gain').value = String(savedGain); S.gain = savedGain / 100; }
