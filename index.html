@@ -220,6 +220,16 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
         <button type="button" data-scene="kaleido" aria-pressed="false">Kaléido</button>
         <button type="button" data-scene="auto" aria-pressed="true">Auto</button>
       </div>
+      <div class="group scenes" role="group" aria-label="Scènes club">
+        <span class="tag">Club</span>
+        <button type="button" data-scene="disco" aria-pressed="false">Boule à facettes</button>
+        <button type="button" data-scene="chase" aria-pressed="false">Chenillard</button>
+        <button type="button" data-scene="sheet" aria-pressed="false">Nappe laser</button>
+        <button type="button" data-scene="floor" aria-pressed="false">Piste de danse</button>
+        <button type="button" data-scene="aurora" aria-pressed="false">Aurore</button>
+      </div>
+    </div>
+    <div class="row">
       <div class="group scenes" role="group" aria-label="Scènes rétro">
         <span class="tag">Rétro</span>
         <button type="button" data-scene="milkdrop" aria-pressed="false">MilkDrop</button>
@@ -1006,6 +1016,169 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     ctx.globalCompositeOperation = 'lighter';
   }
 
+  /* ---------- club scenes: real party fixtures ---------- */
+
+  // Mirror ball: a faceted ball at the top throws spots that sweep across the "walls"
+  const DISCO = [];
+  for (let i = 0; i < 90; i++) DISCO.push({ lon: Math.random() * Math.PI * 2, lat: (Math.random() * 2 - 1) * 1.1, z: 0.6 + Math.random() * 0.8, k: Math.random() });
+  let discoRot = 0;
+  function sceneDisco(dt) {
+    discoRot += dt * (0.25 + 0.5 * S.level);
+    const bx = W / 2, by = H * 0.16, br = Math.min(W, H) * 0.075;
+    const sx = W * 0.62, sy = H * 0.62;
+    for (const p of DISCO) {
+      const a = p.lon + discoRot, c = Math.cos(a);
+      if (c < 0.05) continue;
+      const x = bx + Math.sin(a) * sx * Math.cos(p.lat * 0.6) * 1.15;
+      const y = H * (0.5 + 0.47 * Math.sin(p.lat) / Math.sin(1.1));
+      const vis = Math.min(1, Math.pow(c, 0.5) * (0.6 + 0.8 * S.mid) * (0.7 + 0.3 * Math.sin(S.t * 3 + p.k * 20)));
+      const r = Math.min(W, H) * 0.012 * (1 + p.z) * (1 + 0.6 * S.beat) * (0.6 + 0.6 * c);
+      const h = S.hue + p.k * 60;
+      if (p.k < 0.25) { // a few rays visible in the haze
+        ctx.strokeStyle = col(h, 60, 80, 0.04 * vis);
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(x, y); ctx.stroke();
+      }
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r * 2.4);
+      g.addColorStop(0, col(h, 40, 92, 0.85 * vis));
+      g.addColorStop(0.35, col(h, 80, 70, 0.35 * vis));
+      g.addColorStop(1, col(h, 80, 60, 0));
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.ellipse(x, y, r * 2.4, r * 1.7, 0, 0, 6.283); ctx.fill();
+    }
+    // the ball: rings of facets that catch the light as it turns
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = 'rgb(18,16,30)';
+    ctx.beginPath(); ctx.arc(bx, by, br, 0, 6.283); ctx.fill();
+    ctx.globalCompositeOperation = 'lighter';
+    const rows = 9, cols = 16;
+    for (let r = 0; r < rows; r++) {
+      const lat = (r + 0.5) / rows * Math.PI - Math.PI / 2, cy = by + Math.sin(lat) * br, rw = Math.cos(lat) * br;
+      for (let c = 0; c < cols; c++) {
+        const a = c / cols * Math.PI * 2 + discoRot, ca = Math.cos(a);
+        if (ca <= 0) continue;
+        const shine = Math.pow(0.5 + 0.5 * Math.sin(a * 3 + r * 1.7 + S.t * 2), 6) * (0.4 + 0.6 * S.high) + 0.12;
+        const fs = br * 0.17 * ca;
+        ctx.fillStyle = col(S.hue + r * 8, 30, 70 + 25 * shine, 0.25 + 0.6 * shine);
+        ctx.fillRect(bx + Math.sin(a) * rw - fs / 2, cy - br * 0.08, fs, br * 0.16);
+      }
+    }
+    ctx.strokeStyle = col(S.hue, 20, 60, 0.35); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(bx, 0); ctx.lineTo(bx, by - br); ctx.stroke();
+  }
+
+  // LED chaser: a truss of PAR cans along the top, stepping through patterns on the beat
+  const CHN = 8, CHL = new Float32Array(CHN);
+  let chStep = 0, chPat = 0;
+  function chaseOn(i) {
+    const s = chStep;
+    switch (chPat) {
+      case 0: return i === s % CHN;                                   // run
+      case 1: { const p = s % (2 * CHN - 2); return i === (p < CHN ? p : 2 * CHN - 2 - p); } // ping-pong
+      case 2: return (i + s) % 2 === 0;                               // odd / even
+      case 3: return i === (s % (CHN / 2)) || i === CHN - 1 - (s % (CHN / 2)); // in-out
+      default: return true;                                           // all
+    }
+  }
+  function sceneChase(dt) {
+    if (S.beatFlag) { chStep++; if (chStep % 16 === 0) chPat = (chPat + 1) % 5; }
+    const top = H * 0.08, gap = W / CHN;
+    for (let i = 0; i < CHN; i++) {
+      CHL[i] = chaseOn(i) ? Math.max(CHL[i], 0.4 + 0.6 * S.bass) : CHL[i] * Math.exp(-dt * 7);
+      const v = CHL[i], x = gap * (i + 0.5), h = S.hue + i * (360 / CHN);
+      // beam
+      const L = H * 1.05, wTop = gap * 0.18, wBot = gap * (0.55 + 0.25 * v);
+      const g = ctx.createLinearGradient(0, top, 0, top + L);
+      g.addColorStop(0, col(h, 95, 60, 0.35 * v));
+      g.addColorStop(1, col(h, 95, 55, 0.02 * v));
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.moveTo(x - wTop, top); ctx.lineTo(x + wTop, top); ctx.lineTo(x + wBot, top + L); ctx.lineTo(x - wBot, top + L); ctx.closePath(); ctx.fill();
+      // pool of light on the floor
+      const fy = H * 0.94, fr = gap * (0.7 + 0.3 * v);
+      const fg = ctx.createRadialGradient(x, fy, 0, x, fy, fr);
+      fg.addColorStop(0, col(h, 95, 65, 0.4 * v)); fg.addColorStop(1, col(h, 95, 55, 0));
+      ctx.fillStyle = fg; ctx.beginPath(); ctx.ellipse(x, fy, fr, fr * 0.28, 0, 0, 6.283); ctx.fill();
+      // the can itself
+      const lr = gap * 0.2;
+      ctx.fillStyle = col(h, 30 + 60 * v, 18 + 70 * v, 0.95);
+      ctx.beginPath(); ctx.arc(x, top, lr, 0, 6.283); ctx.fill();
+    }
+    ctx.fillStyle = col(S.hue, 10, 30, 0.5);
+    ctx.fillRect(0, top - gap * 0.26, W, 3);
+  }
+
+  // Laser sheet: a fan of beams from one side that tilts through the haze; a mirrored fan joins on strong passages
+  function sceneSheet() {
+    const n = 34, spread = 0.5 + 0.25 * S.mid;
+    const fan = (ox, oy, dir, tilt, h, a0) => {
+      for (let i = 0; i < n; i++) {
+        const u = i / (n - 1) - 0.5, a = tilt + u * spread;
+        const L = Math.hypot(W, H);
+        const x2 = ox + Math.cos(a) * L * dir, y2 = oy + Math.sin(a) * L;
+        const v = S.spec[Math.floor(i / n * 40)];
+        ctx.strokeStyle = col(h + u * 30, 100, 60, (0.08 + 0.2 * v) * a0);
+        ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(x2, y2); ctx.stroke();
+        ctx.strokeStyle = col(h + u * 30, 100, 78, (0.25 + 0.5 * v) * a0);
+        ctx.lineWidth = 1.2; ctx.stroke();
+      }
+      const g = ctx.createRadialGradient(ox, oy, 0, ox, oy, 40);
+      g.addColorStop(0, col(h, 100, 85, 0.8 * a0)); g.addColorStop(1, col(h, 100, 60, 0));
+      ctx.fillStyle = g; ctx.fillRect(ox - 40, oy - 40, 80, 80);
+    };
+    const tilt = Math.sin(S.t * 0.55) * 0.35 + (S.bass - 0.4) * 0.2;
+    fan(-6, H * 0.45, 1, tilt, S.hue + 120, 1);
+    const second = clamp((S.level - 0.45) * 3, 0, 1);
+    if (second > 0.01) fan(W + 6, H * 0.45, -1, -tilt, S.hue + 240, second);
+  }
+
+  // Dance floor: a lit tile floor in perspective, a new random pattern on every beat
+  const FC = 8, FR = 7, FT = new Float32Array(FC * FR), FH = new Float32Array(FC * FR);
+  function sceneFloor(dt) {
+    if (S.beatFlag || FT.every((v) => v < 0.05)) {
+      for (let i = 0; i < FT.length; i++) if (Math.random() < 0.38) { FT[i] = 1; FH[i] = S.hue + Math.floor(Math.random() * 4) * 70; }
+    }
+    const hy = H * 0.38, by = H * 1.02, topW = W * 0.5, botW = W * 1.6;
+    const P = (c, r) => { // perspective: rows bunch up near the horizon
+      const t = Math.pow(r / FR, 1.6), y = hy + (by - hy) * t, w = topW + (botW - topW) * t;
+      return [W / 2 - w / 2 + w * c / FC, y];
+    };
+    for (let r = 0; r < FR; r++) for (let c = 0; c < FC; c++) {
+      const i = r * FC + c;
+      FT[i] *= Math.exp(-dt * 2.6);
+      const v = 0.08 + FT[i] * (0.55 + 0.45 * S.level);
+      const a = P(c, r), b = P(c + 1, r), d = P(c + 1, r + 1), e = P(c, r + 1);
+      const inset = 0.08;
+      const lerp = (p, q, k) => [p[0] + (q[0] - p[0]) * k, p[1] + (q[1] - p[1]) * k];
+      const A = lerp(a, d, inset), B = lerp(b, e, inset), D = lerp(d, a, inset), E = lerp(e, b, inset);
+      ctx.fillStyle = col(FH[i] || S.hue, 90, 30 + 35 * FT[i], v);
+      ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.lineTo(D[0], D[1]); ctx.lineTo(E[0], E[1]); ctx.closePath(); ctx.fill();
+    }
+    // glow rising off the floor
+    const g = ctx.createLinearGradient(0, hy, 0, 0);
+    g.addColorStop(0, col(S.hue, 90, 55, 0.03 + 0.06 * S.bass)); g.addColorStop(1, col(S.hue, 90, 50, 0));
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, hy);
+  }
+
+  // Aurora: slow curtains of light; brightness follows the music, nothing flashes
+  function sceneAurora() {
+    const step = Math.max(6, Math.round(W / 120));
+    for (let l = 0; l < 3; l++) {
+      const h = S.hue + 100 + l * 50, base = H * (0.3 + l * 0.1), amp = H * (0.06 + 0.08 * S.mid);
+      const len = H * (0.25 + 0.2 * S.level + l * 0.05);
+      for (let x = 0; x <= W; x += step) {
+        const u = x / W;
+        const y = base + Math.sin(u * 5 + S.t * (0.25 + l * 0.08) + l) * amp + Math.sin(u * 13 - S.t * 0.4) * amp * 0.3;
+        const k = 0.5 + 0.5 * Math.sin(u * 9 + S.t * 0.6 + l * 2);
+        const a = (0.012 + 0.032 * k) * (0.5 + 0.8 * S.level);
+        const g = ctx.createLinearGradient(0, y, 0, y + len);
+        g.addColorStop(0, col(h, 85, 65, 0));
+        g.addColorStop(0.15, col(h, 85, 62, a));
+        g.addColorStop(1, col(h + 40, 85, 50, 0));
+        ctx.fillStyle = g; ctx.fillRect(x, y, step + 1, len);
+      }
+    }
+  }
+
   // Room light: the whole screen becomes a soft colour wash so the TV lights the room.
   // Brightness follows the music smoothly; beats swell gently, never strobe.
   let ambLevel = 0.3, ambSwell = 0;
@@ -1032,13 +1205,16 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     beams: sceneBeams, lasers: sceneLasers, tunnel: sceneTunnel, bars: sceneBars,
     grid: sceneGrid, sparks: sceneSparks, waves: sceneWaves, kaleido: sceneKaleido,
     scope: sceneScope, analyser: sceneAnalyser, psyche: scenePsyche, plasma: scenePlasma,
-    ambiance: sceneAmbiance
+    ambiance: sceneAmbiance,
+    disco: sceneDisco, chase: sceneChase, sheet: sceneSheet, floor: sceneFloor, aurora: sceneAurora
   };
   const TRAIL = {
     beams: 0.42, lasers: 0.24, tunnel: 0.2, bars: 0.38, grid: 0.45, sparks: 0.22, waves: 0.3, kaleido: 0.22,
-    scope: 0.25, analyser: 0.4, psyche: 0.03, plasma: 0.5, ambiance: 1
+    scope: 0.25, analyser: 0.4, psyche: 0.03, plasma: 0.5, ambiance: 1,
+    disco: 0.3, chase: 0.45, sheet: 0.35, floor: 0.5, aurora: 0.12
   };
-  const ALL = ['beams', 'lasers', 'tunnel', 'bars', 'grid', 'sparks', 'waves', 'kaleido', 'scope', 'analyser', 'psyche', 'plasma', 'ambiance', 'milkdrop'];
+  const ALL = ['beams', 'lasers', 'tunnel', 'bars', 'grid', 'sparks', 'waves', 'kaleido', 'scope', 'analyser', 'psyche', 'plasma',
+    'disco', 'chase', 'sheet', 'floor', 'aurora', 'ambiance', 'milkdrop'];
 
   /* ---------- MilkDrop (Butterchurn, loaded on first use) ---------- */
   const mdCv = $('mdStage');
@@ -1096,7 +1272,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     if ((S.beats - MD.beatsAt >= 32 && MD.t > 15) || MD.t > 40) nextPreset(2.7);
     try { MD.vis.render(); } catch (e) {}
   }
-  const ORDER = ['beams', 'psyche', 'waves', 'tunnel', 'grid', 'plasma', 'lasers', 'sparks', 'scope', 'kaleido', 'analyser', 'bars'];
+  const ORDER = ['beams', 'disco', 'psyche', 'waves', 'chase', 'tunnel', 'grid', 'sheet', 'plasma', 'lasers', 'floor', 'sparks', 'scope', 'kaleido', 'analyser', 'bars'];
   let sel = 'auto', current = 'beams', sceneT = 0, beatsAtSwitch = 0, fade = 1;
 
   function cutTo(name) {
