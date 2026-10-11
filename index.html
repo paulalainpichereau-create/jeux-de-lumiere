@@ -317,7 +317,12 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
   const FONTS = 'https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Unbounded:wght@500;700&display=swap';
   const $ = (id) => document.getElementById(id);
   const cv = $('stage');
-  const ctx = cv.getContext('2d');
+  // Each scene draws into its own off-screen layer (it keeps its trails there); the visible canvas only
+  // composites them, which lets the outgoing scene keep moving while it fades under the new one.
+  const mainCtx = cv.getContext('2d');
+  const newLayer = () => document.createElement('canvas').getContext('2d');
+  let layCur = newLayer(), layPrev = newLayer();
+  let ctx = layCur;
   const BG = [7, 6, 14]; // same as --bg
   const REDUCE = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const MOT = REDUCE ? 0.45 : 1;
@@ -342,9 +347,16 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     W = window.innerWidth; H = window.innerHeight;
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = `rgb(${BG[0]},${BG[1]},${BG[2]})`;
-    ctx.fillRect(0, 0, W, H);
+    for (const c of [layCur, layPrev]) {
+      c.canvas.width = cv.width; c.canvas.height = cv.height;
+      c.setTransform(dpr, 0, 0, dpr, 0, 0);
+      clearLayer(c);
+    }
+  }
+  function clearLayer(c) {
+    c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1;
+    c.fillStyle = `rgb(${BG[0]},${BG[1]},${BG[2]})`;
+    c.fillRect(0, 0, W, H);
   }
   window.addEventListener('resize', resize);
   resize();
@@ -945,7 +957,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     const z = 1.008 + 0.02 * S.bass + 0.025 * S.beat;
     ctx.scale(z, z);
     ctx.translate(-cx, -cy);
-    ctx.drawImage(cv, 0, 0, cv.width, cv.height, 0, 0, W, H);
+    ctx.drawImage(ctx.canvas, 0, 0, ctx.canvas.width, ctx.canvas.height, 0, 0, W, H);
     ctx.restore();
     ctx.globalCompositeOperation = 'lighter';
     const N = 160, r0 = R * (0.12 + 0.06 * S.bass);
@@ -1162,64 +1174,50 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     if (second > 0.01) fan(W + 6, H * 0.45, -1, -tilt, S.hue + 240, second);
   }
 
-  // Dance floor: glass tiles in perspective. The pattern changes every 16 beats; lit tiles throw light up into the haze.
-  const FC = 9, FR = 8, FT = new Float32Array(FC * FR), FH = new Float32Array(FC * FR);
-  let flPat = 0, flStep = 0;
+  // Dance floor: a full-screen grid of glass tiles seen from above, like a lit disco floor.
+  // The pattern changes every 16 beats; lit tiles glow past their edges.
+  const FMAX = 24 * 24, FT = new Float32Array(FMAX), FH = new Float32Array(FMAX);
+  let flPat = 0, flStep = 0, FC = 12, FR = 7;
   function floorLit(c, r) {
-    const s = flStep, cc = (FC - 1) / 2;
+    const s = flStep, cc = (FC - 1) / 2, rc = (FR - 1) / 2;
     switch (flPat) {
-      case 0: return Math.random() < 0.35;                                           // random
-      case 1: return (c + r + s) % 2 === 0;                                          // checkerboard
-      case 2: return Math.round(Math.hypot(c - cc, (FR - 1 - r) * 1.3)) === s % 8;   // ripple from the front centre
-      case 3: return FR - 1 - r < S.spec[Math.min(NB - 1, Math.floor(Math.abs(c - cc) / cc * 30))] * FR * 1.2; // spectrum
-      default: return c === s % FC || r === FR - 1 - (s % FR);                       // crossing lines
+      case 0: return Math.random() < 0.35;                                                   // random
+      case 1: return (c + r + s) % 2 === 0;                                                  // checkerboard
+      case 2: return Math.round(Math.hypot(c - cc, r - rc)) === s % (Math.ceil(Math.hypot(cc, rc)) + 1); // rings from the centre
+      case 3: return FR - 1 - r < S.spec[Math.min(NB - 1, Math.floor(Math.abs(c - cc) / Math.max(cc, 1) * 34))] * FR * 1.15; // spectrum
+      case 4: return (c + r) % 6 === s % 6;                                                  // diagonal sweep
+      default: return c === s % FC || r === s % FR;                                          // crossing lines
     }
   }
   function sceneFloor(dt) {
-    if (S.beatFlag) {
-      flStep++;
-      if (flStep % 16 === 0) flPat = (flPat + 1) % 5;
-    }
-    const seed = !flStep && FT.every((v) => v < 0.05);
+    const nc = W < 600 ? 7 : 12, nr = Math.max(4, Math.round(nc * H / W));
+    if (nc !== FC || nr !== FR) { FC = nc; FR = nr; FT.fill(0); }
+    if (S.beatFlag) { flStep++; if (flStep % 16 === 0) flPat = (flPat + 1) % 6; }
+    let any = false;
+    for (let i = 0; i < FC * FR; i++) if (FT[i] > 0.05) { any = true; break; }
+    const seed = !flStep && !any;
+    const tw = W / FC, th = H / FR, gap = Math.min(tw, th) * 0.07;
     for (let r = 0; r < FR; r++) for (let c = 0; c < FC; c++) {
       const i = r * FC + c;
       FT[i] *= Math.exp(-dt * (flPat === 3 ? 7 : 2.4));
-      if (flPat === 3) { if (floorLit(c, r)) { FT[i] = Math.max(FT[i], 0.85); FH[i] = S.hue + (FR - 1 - r) * 22; } }
+      if (flPat === 3) { if (floorLit(c, r)) { FT[i] = Math.max(FT[i], 0.85); FH[i] = S.hue + (FR - 1 - r) * (140 / FR); } }
       else if ((S.beatFlag || seed) && floorLit(c, r)) {
         FT[i] = 1;
-        FH[i] = S.hue + (flPat === 0 ? Math.floor(Math.random() * 4) * 70 : (c + r) * 16 + flStep * 12);
+        FH[i] = S.hue + (flPat === 0 ? Math.floor(Math.random() * 4) * 70 : (c + r) * 14 + flStep * 12);
       }
-    }
-    const hy = H * 0.42, by = H * 1.02, topW = W * 0.55, botW = W * 1.7;
-    const P = (c, r) => {
-      const t = Math.pow(r / FR, 1.5), y = hy + (by - hy) * t, w = topW + (botW - topW) * t;
-      return [W / 2 - w / 2 + w * c / FC, y];
-    };
-    const lerp = (p, q, k) => [p[0] + (q[0] - p[0]) * k, p[1] + (q[1] - p[1]) * k];
-    const quad = (a, b, d, e) => { ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.lineTo(d[0], d[1]); ctx.lineTo(e[0], e[1]); ctx.closePath(); };
-    // back wall: a soft glow on the horizon
-    const wall = ctx.createLinearGradient(0, hy, 0, 0);
-    wall.addColorStop(0, col(S.hue, 85, 50, 0.03 + 0.05 * S.bass)); wall.addColorStop(1, col(S.hue, 85, 50, 0));
-    ctx.fillStyle = wall; ctx.fillRect(0, 0, W, hy);
-    for (let r = 0; r < FR; r++) for (let c = 0; c < FC; c++) {
-      const i = r * FC + c, v = FT[i], h = FH[i] || S.hue;
-      const a = P(c, r), b = P(c + 1, r), d = P(c + 1, r + 1), e = P(c, r + 1);
-      // light column rising from a lit tile
-      if (v > 0.15) {
-        const tw = (b[0] - a[0]) * 0.8, cx = (a[0] + b[0]) / 2, ch = H * (0.12 + 0.3 * v) * (0.5 + r / FR);
-        const g = ctx.createLinearGradient(0, a[1], 0, a[1] - ch);
-        g.addColorStop(0, col(h, 90, 60, 0.07 * v)); g.addColorStop(1, col(h, 90, 55, 0));
-        ctx.fillStyle = g; ctx.fillRect(cx - tw / 2, a[1] - ch, tw, ch);
+      const v = FT[i], h = FH[i] || S.hue, x = c * tw, y = r * th;
+      if (v > 0.1) { // glow spilling onto the neighbours
+        ctx.fillStyle = col(h, 95, 55, 0.1 * v);
+        ctx.fillRect(x - gap * 2, y - gap * 2, tw + gap * 4, th + gap * 4);
       }
-      // tile: dark glass, bright core when lit, glowing edge
-      const A = lerp(a, d, 0.06), B = lerp(b, e, 0.06), D = lerp(d, a, 0.06), E = lerp(e, b, 0.06);
-      ctx.fillStyle = col(h, 85, 22 + 38 * v, 0.12 + 0.7 * v);
-      quad(A, B, D, E); ctx.fill();
+      ctx.fillStyle = col(h, 85, 14 + 40 * v, 0.22 + 0.68 * v);
+      ctx.fillRect(x + gap, y + gap, tw - 2 * gap, th - 2 * gap);
       if (v > 0.05) {
-        ctx.strokeStyle = col(h, 100, 75, 0.55 * v); ctx.lineWidth = 1.5; ctx.stroke();
-        const A2 = lerp(a, d, 0.3), B2 = lerp(b, e, 0.3), D2 = lerp(d, a, 0.3), E2 = lerp(e, b, 0.3);
+        const ix = tw * 0.25, iy = th * 0.25;
         ctx.fillStyle = col(h, 60, 80, 0.35 * v);
-        quad(A2, B2, D2, E2); ctx.fill();
+        ctx.fillRect(x + ix, y + iy, tw - 2 * ix, th - 2 * iy);
+        ctx.strokeStyle = col(h, 100, 75, 0.5 * v); ctx.lineWidth = 1.5;
+        ctx.strokeRect(x + gap, y + gap, tw - 2 * gap, th - 2 * gap);
       }
     }
   }
@@ -1382,8 +1380,18 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     const name = SCENE_NAMES[current] || '';
     b.textContent = sel === 'auto' ? 'Auto · ' + name + (calmMode ? ' (calme)' : '') : name;
   }
-  function cutTo(name) {
-    current = name; fade = 0; sceneT = 0; beatsAtSwitch = S.beats; rings.length = 0; sparks.length = 0;
+  // crossfade state: prevScene keeps running on layPrev while xT goes 0 → 1 over xDur seconds
+  let prevScene = null, xT = 1, xDur = 1.5;
+  function cutTo(name, dur = 0.8) {
+    if (name === current) return;
+    if (name !== 'milkdrop' && current !== 'milkdrop') {
+      prevScene = current; xT = 0; xDur = dur;
+      const t = layPrev; layPrev = layCur; layCur = t; // the old scene keeps its trails on what is now layPrev
+      clearLayer(layCur);
+    } else { prevScene = null; xT = 1; clearLayer(layCur); }
+    current = name; sceneT = 0; beatsAtSwitch = S.beats;
+    if (name === 'tunnel') rings.length = 0;
+    if (name === 'sparks') sparks.length = 0;
     const md = name === 'milkdrop';
     mdCv.hidden = !md; cv.hidden = md; $('bPreset').hidden = !md;
     if (ORDER.includes(name)) lastIn[CALM.includes(name) ? 'calm' : 'loud'] = name;
@@ -1396,7 +1404,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     sceneLabel();
     if (name === 'auto') {
       sceneT = 0;
-      if (!autoPool().includes(current)) cutTo(pickNext(autoPool()));
+      if (!autoPool().includes(current)) cutTo(pickNext(autoPool()), 1.2);
     } else if (name === 'milkdrop') {
       ensureMD().then((ok) => {
         if (ok) { if (sel === 'milkdrop') cutTo('milkdrop'); }
@@ -1444,7 +1452,21 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     sceneT += dt;
     const pool = autoPool();
     const due = (S.beats - beatsAtSwitch >= 32 && sceneT > 12) || sceneT > (calmMode ? 45 : 30);
-    if (drop || wasCalm !== calmMode || due || (!pool.includes(current) && sceneT > 3)) cutTo(pickNext(pool));
+    // fades: quick on a drop, slow into and out of calm passages, 1.6 s otherwise
+    if (drop || wasCalm !== calmMode || due || (!pool.includes(current) && sceneT > 3)) {
+      cutTo(pickNext(pool), drop ? 0.35 : wasCalm !== calmMode ? 2.5 : 1.6);
+    }
+  }
+
+  function drawScene(layer, name, dt) {
+    ctx = layer;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = `rgba(${BG[0]},${BG[1]},${BG[2]},${TRAIL[name]})`;
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'lighter';
+    SCENE_FN[name](dt);
+    ctx.globalCompositeOperation = 'source-over';
   }
 
   /* ---------- frame loop ---------- */
@@ -1462,16 +1484,20 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     if (current === 'milkdrop') {
       renderMD(dt);
     } else {
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.fillStyle = `rgba(${BG[0]},${BG[1]},${BG[2]},${TRAIL[current]})`;
-      ctx.fillRect(0, 0, W, H);
-      ctx.globalCompositeOperation = 'lighter';
-      SCENE_FN[current](dt);
-      ctx.globalCompositeOperation = 'source-over';
-      if (fade < 1) {
-        fade = Math.min(1, fade + dt / 0.9);
-        ctx.fillStyle = `rgba(${BG[0]},${BG[1]},${BG[2]},${1 - fade})`;
-        ctx.fillRect(0, 0, W, H);
+      const fading = prevScene && xT < 1;
+      drawScene(layCur, current, dt);
+      if (fading) { drawScene(layPrev, prevScene, dt); xT = Math.min(1, xT + dt / xDur); }
+      mainCtx.globalCompositeOperation = 'source-over';
+      mainCtx.globalAlpha = 1;
+      if (fading) {
+        const e = xT * xT * (3 - 2 * xT); // smoothstep: eases in and out
+        mainCtx.drawImage(layPrev.canvas, 0, 0);
+        mainCtx.globalAlpha = e;
+        mainCtx.drawImage(layCur.canvas, 0, 0);
+        mainCtx.globalAlpha = 1;
+      } else {
+        prevScene = null;
+        mainCtx.drawImage(layCur.canvas, 0, 0);
       }
     }
     mB.style.transform = 'scaleY(' + S.bass.toFixed(3) + ')';
