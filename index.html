@@ -147,6 +147,17 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
 .tabs button { min-height: 36px; }
 .tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #14060d; }
 
+/* scene picker */
+.scene-name { min-width: 15ch; max-width: 60vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picks { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 6px; }
+.pick { display: flex; gap: 4px; min-width: 0; }
+.pick > button:first-child {
+  flex: 1; min-width: 0; padding: 0 10px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 500 14px/1 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; letter-spacing: 0; text-transform: none;
+}
+.pick .star { flex: none; width: 40px; padding: 0; font-size: 16px; color: var(--dim); }
+.pick .star[aria-pressed="true"] { background: var(--panel); border-color: var(--line); color: #ffcf5c; }
+
 .note {
   position: fixed; z-index: 3; left: 50%;
   top: calc(84px + env(safe-area-inset-top, 0px));
@@ -208,36 +219,12 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
       </div>
     </div>
     <div class="row">
-      <div class="group scenes" role="group" aria-label="Scène">
-        <button type="button" data-scene="ambiance" aria-pressed="false">Ambiance</button>
-        <button type="button" data-scene="beams" aria-pressed="false">Projecteurs</button>
-        <button type="button" data-scene="lasers" aria-pressed="false">Lasers</button>
-        <button type="button" data-scene="tunnel" aria-pressed="false">Tunnel</button>
-        <button type="button" data-scene="bars" aria-pressed="false">Spectre</button>
-        <button type="button" data-scene="grid" aria-pressed="false">Grille</button>
-        <button type="button" data-scene="sparks" aria-pressed="false">Étincelles</button>
-        <button type="button" data-scene="waves" aria-pressed="false">Ondes</button>
-        <button type="button" data-scene="kaleido" aria-pressed="false">Kaléido</button>
+      <div class="group" role="group" aria-label="Scène">
+        <button type="button" id="bPrevScene" aria-label="Scène précédente">◀</button>
+        <button type="button" id="bScenes" class="scene-name" aria-haspopup="dialog">Auto · Projecteurs</button>
+        <button type="button" id="bNextScene" aria-label="Scène suivante">▶</button>
         <button type="button" data-scene="auto" aria-pressed="true">Auto</button>
-      </div>
-      <div class="group scenes" role="group" aria-label="Scènes club">
-        <span class="tag">Club</span>
-        <button type="button" data-scene="disco" aria-pressed="false">Boule à facettes</button>
-        <button type="button" data-scene="chase" aria-pressed="false">Chenillard</button>
-        <button type="button" data-scene="sheet" aria-pressed="false">Nappe laser</button>
-        <button type="button" data-scene="floor" aria-pressed="false">Piste de danse</button>
-        <button type="button" data-scene="aurora" aria-pressed="false">Aurore</button>
-      </div>
-    </div>
-    <div class="row">
-      <div class="group scenes" role="group" aria-label="Scènes rétro">
-        <span class="tag">Rétro</span>
-        <button type="button" data-scene="milkdrop" aria-pressed="false">MilkDrop</button>
         <button type="button" id="bPreset" hidden>Effet suivant</button>
-        <button type="button" data-scene="scope" aria-pressed="false">Oscillo</button>
-        <button type="button" data-scene="analyser" aria-pressed="false">Analyseur</button>
-        <button type="button" data-scene="psyche" aria-pressed="false">Psyché</button>
-        <button type="button" data-scene="plasma" aria-pressed="false">Plasma</button>
       </div>
     </div>
     <div class="row">
@@ -252,6 +239,17 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     </div>
   </section>
   <input type="file" id="fileIn" accept="audio/*" multiple hidden>
+
+  <div class="sheet" id="scenesSheet" role="dialog" aria-modal="true" aria-labelledby="scenesTitle" hidden>
+    <div class="sheet-card">
+      <div class="sheet-head">
+        <h2 id="scenesTitle">Toutes les scènes</h2>
+        <button type="button" id="scenesClose" aria-label="Fermer">Fermer</button>
+      </div>
+      <p class="fit">Touchez une scène pour l’afficher. L’étoile la met dans le mode Auto. En Auto, les scènes calmes passent quand la musique est douce.</p>
+      <div id="scenePicks"></div>
+    </div>
+  </div>
 
   <div class="sheet" id="cast" role="dialog" aria-modal="true" aria-labelledby="castTitle" hidden>
     <div class="sheet-card">
@@ -601,6 +599,10 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
         NF.b = Math.min(NF.b + k, rb); NF.m = Math.min(NF.m + k, rm); NF.h = Math.min(NF.h + k, rh);
         rb = Math.max(0, rb - NF.b * 1.15); rm = Math.max(0, rm - NF.m * 1.15); rh = Math.max(0, rh - NF.h * 1.15);
       }
+      // loudness for the smart Auto, measured against a slow 30 s peak so quiet passages stay quiet
+      const rawL = 0.5 * rb + 0.3 * rm + 0.2 * rh;
+      AG.pk = Math.max((AG.pk || 0.05) * Math.pow(0.5, dt / 30), rawL, 0.05);
+      S.loud = rawL / AG.pk;
       const decay = Math.pow(0.5, dt / 6); // auto-gain: peak memory halves every 6 s
       AG.b = Math.max(AG.b * decay, rb, 0.12);
       AG.m = Math.max(AG.m * decay, rm, 0.12);
@@ -648,6 +650,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     S.bass = sm(S.bass, tb); S.mid = sm(S.mid, tm); S.high = sm(S.high, th);
     for (let j = 0; j < NB; j++) S.spec[j] = sm(S.spec[j], TS[j]);
     S.level = S.bass * 0.5 + S.mid * 0.3 + S.high * 0.2;
+    if (!live) S.loud = S.level;
 
     S.beatFlag = false;
     AG.avg += (tb - AG.avg) * (1 - Math.exp(-dt * 2.2));
@@ -1334,21 +1337,66 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     if ((S.beats - MD.beatsAt >= 32 && MD.t > 15) || MD.t > 40) nextPreset(2.7);
     try { MD.vis.render(); } catch (e) {}
   }
-  const ORDER = ['beams', 'disco', 'psyche', 'waves', 'chase', 'tunnel', 'grid', 'sheet', 'plasma', 'lasers', 'floor', 'sparks', 'scope', 'kaleido', 'analyser', 'bars'];
+  const ORDER = ['beams', 'disco', 'psyche', 'waves', 'chase', 'tunnel', 'grid', 'sheet', 'plasma', 'lasers', 'floor', 'sparks', 'scope', 'kaleido', 'analyser', 'bars', 'aurora', 'ambiance'];
+  const CALM = ['aurora', 'ambiance', 'waves', 'kaleido', 'plasma'];
+  const SCENE_GROUPS = [
+    ['Lumières', [['beams', 'Projecteurs'], ['lasers', 'Lasers'], ['tunnel', 'Tunnel'], ['bars', 'Spectre'], ['grid', 'Grille'], ['sparks', 'Étincelles'], ['waves', 'Ondes'], ['kaleido', 'Kaléido']]],
+    ['Club', [['disco', 'Boule à facettes'], ['chase', 'Chenillard'], ['sheet', 'Nappe laser'], ['floor', 'Piste de danse']]],
+    ['Rétro', [['scope', 'Oscillo'], ['analyser', 'Analyseur'], ['psyche', 'Psyché'], ['plasma', 'Plasma'], ['milkdrop', 'MilkDrop']]],
+    ['Calme', [['aurora', 'Aurore'], ['ambiance', 'Ambiance']]]
+  ];
+  const SCENE_NAMES = {};
+  SCENE_GROUPS.forEach(([, items]) => items.forEach(([id, name]) => { SCENE_NAMES[id] = name; }));
+  // scenes in the Auto rotation: everything except Ambiance and MilkDrop by default, remembered per device
+  let autoSet = new Set(ORDER.filter((id) => id !== 'ambiance'));
+  try { const saved = JSON.parse(localStorage.getItem('jdl.autoSet') || 'null'); if (Array.isArray(saved)) autoSet = new Set(saved.filter((id) => ORDER.includes(id))); } catch (e) {}
+  (function buildPicker() {
+    const root = $('scenePicks');
+    SCENE_GROUPS.forEach(([title, items]) => {
+      const h = document.createElement('h3'); h.textContent = title; root.appendChild(h);
+      const grid = document.createElement('div'); grid.className = 'picks'; root.appendChild(grid);
+      items.forEach(([id, name]) => {
+        const row = document.createElement('div'); row.className = 'pick';
+        const b = document.createElement('button'); b.type = 'button'; b.dataset.scene = id; b.setAttribute('aria-pressed', 'false'); b.textContent = name;
+        row.appendChild(b);
+        if (ORDER.includes(id)) {
+          const st = document.createElement('button'); st.type = 'button'; st.className = 'star'; st.dataset.star = id;
+          st.setAttribute('aria-label', name + ' dans le mode Auto');
+          row.appendChild(st);
+        }
+        grid.appendChild(row);
+      });
+    });
+  })();
+  function paintStars() {
+    document.querySelectorAll('[data-star]').forEach((b) => {
+      const on = autoSet.has(b.dataset.star);
+      b.setAttribute('aria-pressed', String(on)); b.textContent = on ? '★' : '☆';
+    });
+  }
   let sel = 'auto', current = 'beams', sceneT = 0, beatsAtSwitch = 0, fade = 1;
+  let energy = 0.5, calmMode = false, breakT = 0, recovT = 0;
 
+  function sceneLabel() {
+    const b = $('bScenes'); if (!b) return;
+    const name = SCENE_NAMES[current] || '';
+    b.textContent = sel === 'auto' ? 'Auto · ' + name + (calmMode ? ' (calme)' : '') : name;
+  }
   function cutTo(name) {
     current = name; fade = 0; sceneT = 0; beatsAtSwitch = S.beats; rings.length = 0; sparks.length = 0;
     const md = name === 'milkdrop';
     mdCv.hidden = !md; cv.hidden = md; $('bPreset').hidden = !md;
+    if (ORDER.includes(name)) lastIn[CALM.includes(name) ? 'calm' : 'loud'] = name;
+    sceneLabel();
   }
   function chooseScene(name) {
     sel = name;
     store.set('scene', name);
     document.querySelectorAll('[data-scene]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.scene === sel)));
+    sceneLabel();
     if (name === 'auto') {
       sceneT = 0;
-      if (current === 'milkdrop' || current === 'ambiance') cutTo('beams');
+      if (!autoPool().includes(current)) cutTo(pickNext(autoPool()));
     } else if (name === 'milkdrop') {
       ensureMD().then((ok) => {
         if (ok) { if (sel === 'milkdrop') cutTo('milkdrop'); }
@@ -1356,12 +1404,47 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
       });
     } else cutTo(name);
   }
+  // Smart Auto: follows the energy of the music (calm scenes for quiet passages) and marks the drop
+  // when the bass comes back after a break.
+  function autoPool() {
+    const fav = ORDER.filter((id) => autoSet.has(id));
+    const base = fav.length ? fav : ORDER.filter((id) => !CALM.includes(id));
+    const calm = base.filter((id) => CALM.includes(id)), loud = base.filter((id) => !CALM.includes(id));
+    if (calmMode) return calm.length ? calm : base;
+    return loud.length ? loud : base;
+  }
+  // carry on from where each rotation left off, so coming back from a calm passage doesn't restart the list
+  const lastIn = { calm: null, loud: null };
+  function pickNext(pool) {
+    const ref = pool.includes(current) ? current : lastIn[calmMode ? 'calm' : 'loud'];
+    const next = pool[(pool.indexOf(ref) + 1) % pool.length];
+    lastIn[CALM.includes(next) ? 'calm' : 'loud'] = next;
+    return next;
+  }
   function autoScene(dt) {
+    const live = A.mode !== 'idle' && !A.paused;
+    if (ORDER.includes(current)) lastIn[CALM.includes(current) ? 'calm' : 'loud'] = current;
+    energy +=((S.loud ?? S.level) - energy) * (1 - Math.exp(-dt / 4));
+    let drop = false;
+    if (live) {
+      // a break is 2.5 s+ of quiet; the drop is the bass coming back hard. A slow return within 1 s is no drop.
+      const q = S.loud ?? S.level;
+      if (q < 0.2) { breakT += dt; recovT = 0; }
+      else if (S.bass > 0.6 && q > 0.45) { drop = breakT > 2.5; breakT = 0; }
+      else if ((recovT += dt) > 1) breakT = 0;
+    }
+    if (drop) { S.beat = MOT; S.hueTarget = (S.hueTarget + 120) % 360; energy = Math.max(energy, 0.6); } // the drop ends the calm passage at once
+    const wasCalm = calmMode;
+    if (live) {
+      if (!calmMode && energy < 0.25) calmMode = true;
+      else if (calmMode && (energy > 0.38 || drop)) calmMode = false;
+    } else calmMode = false;
+    if (wasCalm !== calmMode) sceneLabel();
     if (sel !== 'auto') return;
     sceneT += dt;
-    if ((S.beats - beatsAtSwitch >= 32 && sceneT > 12) || sceneT > 30) {
-      cutTo(ORDER[(ORDER.indexOf(current) + 1) % ORDER.length]);
-    }
+    const pool = autoPool();
+    const due = (S.beats - beatsAtSwitch >= 32 && sceneT > 12) || sceneT > (calmMode ? 45 : 30);
+    if (drop || wasCalm !== calmMode || due || (!pool.includes(current) && sceneT > 3)) cutTo(pickNext(pool));
   }
 
   /* ---------- frame loop ---------- */
@@ -1462,6 +1545,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const k = e.key.toLowerCase();
     if (!castEl.hidden) { if (k === 'escape') closeCast(); return; }
+    if (!scenesEl.hidden) { if (k === 'escape') closeScenes(); return; }
     const onControl = e.target instanceof Element && e.target.closest('button,input');
     if (k === ' ' && !onControl) { e.preventDefault(); togglePause(); }
     else if (k === 'f') bFull.click();
@@ -1470,10 +1554,8 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     else if (k === 'p') toggleParty();
     else if (k === 'c') nextPalette();
     else if (k === 'a') chooseScene('auto');
-    else if ((k === 'arrowright' || k === 'arrowleft') && !onControl) {
-      const n = ALL.length;
-      chooseScene(ALL[(ALL.indexOf(current) + (k === 'arrowright' ? 1 : n - 1)) % n]);
-    }
+    else if ((k === 'arrowright' || k === 'arrowleft') && !onControl) stepScene(k === 'arrowright' ? 1 : -1);
+    else if (k === 's') openScenes();
     else if (k.length === 1 && '123456789'.indexOf(k) > -1) chooseScene(ALL[Number(k) - 1]);
   });
 
@@ -1545,6 +1627,35 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
   const savedScene = store.get('scene');
   chooseScene(savedScene && (savedScene === 'auto' || savedScene === 'milkdrop' || SCENE_FN[savedScene]) ? savedScene : 'auto');
   $('bPreset').addEventListener('click', () => nextPreset(1.5));
+
+  /* ---------- scene picker ---------- */
+  const PICK_ORDER = [];
+  SCENE_GROUPS.forEach(([, items]) => items.forEach(([id]) => PICK_ORDER.push(id)));
+  function stepScene(d) {
+    const n = PICK_ORDER.length, i = PICK_ORDER.indexOf(current);
+    chooseScene(PICK_ORDER[(i + d + n) % n]);
+  }
+  const scenesEl = $('scenesSheet');
+  function openScenes() { paintStars(); scenesEl.hidden = false; $('scenesClose').focus(); wake(); }
+  function closeScenes() { scenesEl.hidden = true; $('bScenes').focus(); wake(); }
+  $('bScenes').addEventListener('click', openScenes);
+  $('scenesClose').addEventListener('click', closeScenes);
+  scenesEl.addEventListener('click', (e) => {
+    if (e.target === scenesEl) { closeScenes(); return; }
+    const star = e.target.closest('[data-star]');
+    if (star) {
+      const id = star.dataset.star;
+      if (autoSet.has(id)) autoSet.delete(id); else autoSet.add(id);
+      try { localStorage.setItem('jdl.autoSet', JSON.stringify([...autoSet])); } catch (err) {}
+      paintStars();
+      return;
+    }
+    if (e.target.closest('[data-scene]')) closeScenes(); // the scene itself is chosen by the shared [data-scene] handler
+  });
+  $('bPrevScene').addEventListener('click', () => stepScene(-1));
+  $('bNextScene').addEventListener('click', () => stepScene(1));
+  paintStars();
+  sceneLabel();
 
   /* ---------- "Sur la TV" guide ---------- */
   const castEl = $('cast'), bCast = $('bCast');
