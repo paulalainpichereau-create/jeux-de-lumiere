@@ -40,7 +40,8 @@ body {
   font: 14px/1.4 var(--f-mono);
   overflow: hidden;
 }
-#stage, #mdStage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+#stage, #mdStage, #fx { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+#fx { z-index: 1; pointer-events: none; }
 
 .hud { position: fixed; left: 0; right: 0; z-index: 2; transition: opacity 0.5s; }
 body.idle .hud { opacity: 0; pointer-events: none; }
@@ -147,6 +148,19 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
 .tabs button { min-height: 36px; }
 .tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #14060d; }
 
+/* options */
+.fields { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.field { display: grid; gap: 4px; flex: 1 1 200px; min-width: 0; }
+.field > span { color: var(--dim); font-size: 13px; }
+.sheet input[type="text"], .sheet input[type="time"], .sheet select {
+  box-sizing: border-box; width: 100%; min-height: 42px; padding: 0 10px;
+  background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 8px;
+  font: 16px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+.sheet .warn { color: #ffcf5c; margin-bottom: 8px; }
+.check { display: flex; gap: 10px; align-items: center; min-height: 40px; }
+.check input { width: 20px; height: 20px; accent-color: var(--accent); }
+
 /* scene picker */
 .scene-name { min-width: 15ch; max-width: 60vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .picks { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 6px; }
@@ -190,6 +204,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
 <div id="app" lang="fr">
   <canvas id="mdStage" aria-label="Visualisation MilkDrop synchronisée avec le son" hidden></canvas>
   <canvas id="stage" aria-label="Visualisation lumineuse synchronisée avec le son"></canvas>
+  <canvas id="fx" aria-hidden="true"></canvas>
 
   <header class="hud top">
     <div class="brand">
@@ -235,10 +250,50 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
       <button type="button" id="bPal" aria-label="Changer la palette de couleurs">Couleurs : Arc-en-ciel</button>
       <button type="button" id="bFull">Plein écran</button>
       <button type="button" id="bCast" class="primary">Sur la TV</button>
+      <button type="button" id="bOpts">Options</button>
       <button type="button" id="bSave" hidden>Version autonome</button>
     </div>
   </section>
   <input type="file" id="fileIn" accept="audio/*" multiple hidden>
+
+  <div class="sheet" id="optsSheet" role="dialog" aria-modal="true" aria-labelledby="optsTitle" hidden>
+    <div class="sheet-card">
+      <div class="sheet-head">
+        <h2 id="optsTitle">Options</h2>
+        <button type="button" id="optsClose" aria-label="Fermer">Fermer</button>
+      </div>
+
+      <h3>Message à l’écran</h3>
+      <div class="fields">
+        <label class="field" for="msgText"><span>Texte</span>
+          <input id="msgText" type="text" maxlength="60" placeholder="Joyeux anniversaire Marie" autocomplete="off">
+        </label>
+        <label class="field" for="msgMode"><span>Affichage</span>
+          <select id="msgMode">
+            <option value="off">Masqué</option>
+            <option value="always">En permanence</option>
+            <option value="cycle">8 s toutes les 30 s</option>
+            <option value="drop">À chaque drop</option>
+          </select>
+        </label>
+      </div>
+
+      <h3>Compte à rebours</h3>
+      <div class="fields">
+        <label class="field" for="cdTime"><span>Heure</span><input id="cdTime" type="time"></label>
+        <button type="button" id="cdClear">Effacer</button>
+      </div>
+      <p class="fit">Le temps restant s’affiche en bas de l’écran pendant la dernière heure, les 10 dernières secondes en grand, puis votre message (ou « C’est l’heure ! ») pendant une minute.</p>
+
+      <h3>Stroboscope</h3>
+      <p class="warn">Les flashs lumineux peuvent déclencher des crises chez les personnes épileptiques ou photosensibles. Prévenez vos invités avant de l’activer.</p>
+      <label class="check" for="strobe"><input type="checkbox" id="strobe"> Flashs blancs sur les grosses basses, 3 par seconde au maximum</label>
+      <p class="fit" id="strobeNote" hidden>Désactivé : votre appareil demande de réduire les animations.</p>
+
+      <h3>Fluidité</h3>
+      <p class="fit" id="perfInfo">Qualité maximale. Elle baisse toute seule si l’appareil n’arrive pas à suivre.</p>
+    </div>
+  </div>
 
   <div class="sheet" id="scenesSheet" role="dialog" aria-modal="true" aria-labelledby="scenesTitle" hidden>
     <div class="sheet-card">
@@ -343,8 +398,9 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
 
   /* ---------- canvas ---------- */
   let W = 0, H = 0;
+  let renderScale = 1; // lowered by the automatic smoothness check on slow devices
   function resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2) * renderScale;
     W = window.innerWidth; H = window.innerHeight;
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
     for (const c of [layCur, layPrev]) {
@@ -1441,7 +1497,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
       else if (S.bass > 0.6 && q > 0.45) { drop = breakT > 2.5; breakT = 0; }
       else if ((recovT += dt) > 1) breakT = 0;
     }
-    if (drop) { S.beat = MOT; S.hueTarget = (S.hueTarget + 120) % 360; energy = Math.max(energy, 0.6); } // the drop ends the calm passage at once
+    if (drop) { S.beat = MOT; S.hueTarget = (S.hueTarget + 120) % 360; energy = Math.max(energy, 0.6); dropFlag = true; } // the drop ends the calm passage at once
     const wasCalm = calmMode;
     if (live) {
       if (!calmMode && energy < 0.25) calmMode = true;
@@ -1503,6 +1559,8 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     mB.style.transform = 'scaleY(' + S.bass.toFixed(3) + ')';
     mM.style.transform = 'scaleY(' + S.mid.toFixed(3) + ')';
     mH.style.transform = 'scaleY(' + S.high.toFixed(3) + ')';
+    drawOverlay(dt, now);
+    checkSmoothness(now);
     requestAnimationFrame(frame);
   }
 
@@ -1572,6 +1630,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     const k = e.key.toLowerCase();
     if (!castEl.hidden) { if (k === 'escape') closeCast(); return; }
     if (!scenesEl.hidden) { if (k === 'escape') closeScenes(); return; }
+    if (!optsEl.hidden) { if (k === 'escape') closeOpts(); return; }
     const onControl = e.target instanceof Element && e.target.closest('button,input');
     if (k === ' ' && !onControl) { e.preventDefault(); togglePause(); }
     else if (k === 'f') bFull.click();
@@ -1713,6 +1772,117 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     bpmEl.hidden = !b;
     if (b) bpmEl.textContent = b + ' BPM';
   }, 1000);
+  /* ---------- overlay: message, countdown, strobe ---------- */
+  const fxCv = $('fx'), fx = fxCv.getContext('2d');
+  const OPT = { text: store.get('msgText') || '', mode: store.get('msgMode') || 'off', cd: store.get('cdTime') || '', strobe: false };
+  let dropFlag = false, msgClock = 0, dropShow = 0, msgA = 0, msgLast = '', strobeA = 0, lastFlash = 0;
+  function countdown() { // seconds until the chosen time (negative just after it), or null
+    if (!OPT.cd) return null;
+    const [hh, mm] = OPT.cd.split(':').map(Number);
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+    const now = new Date(), t = new Date(now);
+    t.setHours(hh, mm, 0, 0);
+    let d = (t - now) / 1000;
+    if (d < -120) d += 86400; // already passed today: count down to tomorrow
+    return d;
+  }
+  function fitText(txt, maxH, maxW) {
+    let size = maxH;
+    fx.font = `700 ${size}px Unbounded, 'Arial Black', system-ui, sans-serif`;
+    const w = fx.measureText(txt).width;
+    if (w > maxW) { size = size * maxW / w; fx.font = `700 ${size}px Unbounded, 'Arial Black', system-ui, sans-serif`; }
+    return size;
+  }
+  function glowText(txt, x, y, size, alpha) {
+    fx.textAlign = 'center'; fx.textBaseline = 'middle';
+    fx.shadowColor = col(S.hue, 100, 60, 0.9 * alpha);
+    fx.shadowBlur = size * 0.35;
+    fx.fillStyle = col(S.hue + 180, 100, 72, alpha);
+    fx.fillText(txt, x, y);
+    fx.shadowBlur = 0;
+    fx.fillStyle = `rgba(255,255,255,${0.85 * alpha})`;
+    fx.fillText(txt, x, y);
+  }
+  function drawOverlay(dt, now) {
+    const dpr = cv.width / Math.max(1, W);
+    if (fxCv.width !== cv.width || fxCv.height !== cv.height) { fxCv.width = cv.width; fxCv.height = cv.height; }
+    fx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    fx.clearRect(0, 0, W, H);
+    const live = A.mode !== 'idle' && !A.paused;
+    // strobe: white flash on strong kicks, never more than ~3 per second
+    if (OPT.strobe && live && S.beatFlag && S.bass > 0.7 && now - lastFlash > 340) { lastFlash = now; strobeA = 0.9; }
+    if (strobeA > 0.01) { fx.fillStyle = `rgba(255,255,255,${strobeA})`; fx.fillRect(0, 0, W, H); strobeA *= Math.exp(-dt * 28); }
+    // countdown and message
+    let text = '', big = false;
+    const cd = countdown();
+    if (cd !== null) {
+      if (cd > 0 && cd <= 10) { text = String(Math.ceil(cd)); big = true; }
+      else if (cd <= 0 && cd > -60) text = OPT.text || 'C’est l’heure !';
+      else if (cd > 10 && cd <= 3600) {
+        const m = Math.floor(cd / 60), s = Math.floor(cd % 60);
+        const t = (m ? m + ' min ' : '') + String(s).padStart(2, '0') + ' s';
+        fx.font = `500 ${Math.max(14, H * 0.035)}px 'IBM Plex Mono', ui-monospace, monospace`;
+        fx.textAlign = 'center'; fx.textBaseline = 'alphabetic';
+        fx.fillStyle = 'rgba(255,255,255,0.75)';
+        fx.fillText(OPT.cd.replace(':', ' h ') + ' dans ' + t, W / 2, H - Math.max(18, H * 0.04));
+      }
+    }
+    msgClock += dt;
+    if (dropFlag) { dropShow = 6; dropFlag = false; }
+    if (!text && OPT.text) {
+      if (OPT.mode === 'always') text = OPT.text;
+      else if (OPT.mode === 'cycle' && msgClock % 30 < 8) text = OPT.text;
+      else if (OPT.mode === 'drop' && dropShow > 0) text = OPT.text;
+    }
+    dropShow -= dt;
+    if (text) msgLast = text;
+    msgA += ((text ? 1 : 0) - msgA) * (1 - Math.exp(-dt * (big ? 20 : 4)));
+    if (msgA > 0.01 && msgLast) {
+      const pulse = 1 + 0.06 * S.beat;
+      const size = fitText(msgLast, (big ? H * 0.5 : H * 0.15) * pulse, W * 0.9);
+      glowText(msgLast, W / 2, H / 2, size, msgA);
+    }
+  }
+
+  // automatic smoothness: lower the drawing resolution when frames drop, raise it again when things are calm
+  let perfStart = 0, perfN = 0, perfGood = 0;
+  function updatePerfInfo() {
+    $('perfInfo').textContent = renderScale >= 1
+      ? 'Qualité maximale. Elle baisse toute seule si l’appareil n’arrive pas à suivre.'
+      : 'Qualité réduite à ' + Math.round(renderScale * 100) + ' % pour rester fluide sur cet appareil.';
+  }
+  function checkSmoothness(now) { // wall-clock based, so very slow frames are counted for what they are
+    if (document.hidden || current === 'milkdrop' || !perfStart) { perfStart = now; perfN = 0; return; }
+    perfN++;
+    const span = (now - perfStart) / 1000;
+    if (span < 3) return;
+    const fps = perfN / span;
+    perfStart = now; perfN = 0;
+    if (fps < 42 && renderScale > 0.5) { renderScale = Math.max(0.5, renderScale * 0.75); perfGood = 0; resize(); updatePerfInfo(); }
+    else if (fps > 57 && renderScale < 1) {
+      if ((perfGood += 3) >= 15) { renderScale = Math.min(1, renderScale / 0.75); perfGood = 0; resize(); updatePerfInfo(); }
+    } else perfGood = 0;
+  }
+
+  // options panel
+  const optsEl = $('optsSheet');
+  const msgText = $('msgText'), msgMode = $('msgMode'), cdTime = $('cdTime'), strobeBox = $('strobe');
+  msgText.value = OPT.text; msgMode.value = OPT.mode; cdTime.value = OPT.cd;
+  if (REDUCE) { strobeBox.disabled = true; $('strobeNote').hidden = false; }
+  msgText.addEventListener('input', () => {
+    OPT.text = msgText.value.trim(); store.set('msgText', OPT.text);
+    if (OPT.text && OPT.mode === 'off') { OPT.mode = msgMode.value = 'always'; store.set('msgMode', 'always'); }
+  });
+  msgMode.addEventListener('change', () => { OPT.mode = msgMode.value; msgClock = 0; store.set('msgMode', OPT.mode); });
+  cdTime.addEventListener('change', () => { OPT.cd = cdTime.value; store.set('cdTime', OPT.cd); });
+  $('cdClear').addEventListener('click', () => { OPT.cd = cdTime.value = ''; store.set('cdTime', ''); });
+  strobeBox.addEventListener('change', () => { OPT.strobe = strobeBox.checked && !REDUCE; });
+  function openOpts() { optsEl.hidden = false; $('optsClose').focus(); wake(); }
+  function closeOpts() { optsEl.hidden = true; $('bOpts').focus(); wake(); }
+  $('bOpts').addEventListener('click', openOpts);
+  $('optsClose').addEventListener('click', closeOpts);
+  optsEl.addEventListener('click', (e) => { if (e.target === optsEl) closeOpts(); });
+
   const savedGain = Number(store.get('gain'));
   if (savedGain >= 50 && savedGain <= 200) { $('gain').value = String(savedGain); S.gain = savedGain / 100; }
   setParty(false);
