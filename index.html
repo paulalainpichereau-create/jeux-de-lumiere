@@ -120,6 +120,33 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
 }
 .primary { border-color: var(--accent); }
 
+/* "Sur la TV" guide: a sheet over the stage */
+.sheet {
+  position: fixed; inset: 0; z-index: 5;
+  display: grid; place-items: center;
+  padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  background: rgba(7, 6, 14, 0.72);
+}
+.sheet-card {
+  box-sizing: border-box; width: min(620px, 100%); max-height: 100%; overflow-y: auto;
+  padding: 18px 20px 20px;
+  background: #110e20; border: 1px solid var(--line); border-radius: 12px;
+  font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; color: var(--ink);
+}
+.sheet-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.sheet h2 { margin: 0; font: 700 18px/1.2 var(--f-display); text-wrap: balance; }
+.sheet h3 {
+  margin: 18px 0 6px; color: var(--cool);
+  font: 500 11px/1.3 var(--f-mono); letter-spacing: 0.1em; text-transform: uppercase;
+}
+.sheet p, .sheet ol, .sheet ul { margin: 0; max-width: 62ch; }
+.sheet ol, .sheet ul { padding-left: 20px; display: grid; gap: 4px; }
+.sheet b { color: #fff; font-weight: 500; }
+.sheet .fit { color: var(--dim); margin-bottom: 6px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.tabs button { min-height: 36px; }
+.tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #14060d; }
+
 .note {
   position: fixed; z-index: 3; left: 50%;
   top: calc(84px + env(safe-area-inset-top, 0px));
@@ -210,10 +237,70 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
       </label>
       <button type="button" id="bPal" aria-label="Changer la palette de couleurs">Couleurs : Arc-en-ciel</button>
       <button type="button" id="bFull">Plein écran</button>
+      <button type="button" id="bCast" class="primary">Sur la TV</button>
       <button type="button" id="bSave" hidden>Version autonome</button>
     </div>
   </section>
   <input type="file" id="fileIn" accept="audio/*" multiple hidden>
+
+  <div class="sheet" id="cast" role="dialog" aria-modal="true" aria-labelledby="castTitle" hidden>
+    <div class="sheet-card">
+      <div class="sheet-head">
+        <h2 id="castTitle">Afficher sur la TV</h2>
+        <button type="button" id="castClose" aria-label="Fermer">Fermer</button>
+      </div>
+      <div class="tabs" role="tablist" aria-label="Appareil">
+        <button type="button" role="tab" data-dev="ios">iPhone / iPad</button>
+        <button type="button" role="tab" data-dev="android">Android</button>
+        <button type="button" role="tab" data-dev="pc">Ordinateur</button>
+      </div>
+
+      <div class="dev" data-dev="ios">
+        <h3>Sans fil : AirPlay</h3>
+        <p class="fit">Apple TV, ou TV compatible AirPlay 2 (beaucoup de Samsung, LG, Sony, Philips depuis 2019).</p>
+        <ol>
+          <li>Téléphone et TV sur le même Wi-Fi.</li>
+          <li>Ouvrez le Centre de contrôle (glissez depuis le coin en haut à droite, ou depuis le bas sur les anciens iPhone).</li>
+          <li>Touchez <b>Recopie de l’écran</b> (les deux rectangles), puis choisissez la TV.</li>
+          <li>Si la TV affiche un code, tapez-le sur le téléphone.</li>
+        </ol>
+        <h3>Avec un câble</h3>
+        <p>Adaptateur Apple <b>Lightning vers HDMI</b> (Lightning AV numérique) ou <b>USB-C vers HDMI</b> selon le modèle, puis un câble HDMI vers la TV.</p>
+      </div>
+
+      <div class="dev" data-dev="android">
+        <h3>Sans fil : diffusion d’écran</h3>
+        <p class="fit">Chromecast, Google TV / Android TV, ou TV avec diffusion intégrée.</p>
+        <ol>
+          <li>Téléphone et TV sur le même Wi-Fi.</li>
+          <li>Ouvrez les réglages rapides (glissez deux fois depuis le haut de l’écran).</li>
+          <li>Touchez <b>Caster</b>, <b>Diffuser l’écran</b> ou <b>Smart View</b> sur Samsung, puis choisissez la TV.</li>
+          <li>Pas de bouton ? Ouvrez l’application <b>Google Home</b>, choisissez la TV, puis <b>Caster mon écran</b>.</li>
+        </ol>
+        <h3>Avec un câble</h3>
+        <p>Beaucoup de téléphones récents (Samsung Galaxy S et Note, Pixel 8 et plus) acceptent un adaptateur <b>USB-C vers HDMI</b>.</p>
+      </div>
+
+      <div class="dev" data-dev="pc">
+        <h3>Avec un câble : le plus fiable</h3>
+        <p>Câble <b>HDMI</b> de l’ordinateur à la TV, puis choisissez l’entrée HDMI sur la télécommande. Sur Windows, <b>Windows + P</b> puis <b>Dupliquer</b> ou <b>Deuxième écran uniquement</b>.</p>
+        <h3>Sans fil</h3>
+        <ul>
+          <li><b>Chrome ou Edge</b> : menu <b>⋮</b> › <b>Caster…</b> (Chromecast, Google TV).</li>
+          <li><b>Windows</b> : <b>Windows + K</b> pour les TV compatibles Miracast.</li>
+          <li><b>Mac</b> : Centre de contrôle › <b>Recopie de l’écran</b> (Apple TV ou TV AirPlay 2).</li>
+        </ul>
+      </div>
+
+      <h3>Ensuite, pour un bon rendu</h3>
+      <ul>
+        <li>Tournez le téléphone ou la tablette <b>à l’horizontale</b> pour remplir la TV.</li>
+        <li>Touchez <b>Mode soirée</b> : plein écran, scènes automatiques, commandes masquées.</li>
+        <li>Coupez la mise en veille de la TV et baissez les lumières de la pièce.</li>
+        <li>Avec le micro, gardez l’appareil près de l’enceinte, sans le couvrir.</li>
+      </ul>
+    </div>
+  </div>
 </div>
 
 <script id="app-js">
@@ -1136,6 +1223,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
   window.addEventListener('keydown', (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const k = e.key.toLowerCase();
+    if (!castEl.hidden) { if (k === 'escape') closeCast(); return; }
     const onControl = e.target instanceof Element && e.target.closest('button,input');
     if (k === ' ' && !onControl) { e.preventDefault(); togglePause(); }
     else if (k === 'f') bFull.click();
@@ -1219,6 +1307,22 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
   const savedScene = store.get('scene');
   chooseScene(savedScene && (savedScene === 'auto' || savedScene === 'milkdrop' || SCENE_FN[savedScene]) ? savedScene : 'auto');
   $('bPreset').addEventListener('click', () => nextPreset(1.5));
+
+  /* ---------- "Sur la TV" guide ---------- */
+  const castEl = $('cast'), bCast = $('bCast');
+  const ua = navigator.userAgent || '';
+  const myDev = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) ? 'ios'
+    : /Android/.test(ua) ? 'android' : 'pc';
+  function showDev(dev) {
+    castEl.querySelectorAll('.tabs [data-dev]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.dev === dev)));
+    castEl.querySelectorAll('.dev').forEach((d) => { d.hidden = d.dataset.dev !== dev; });
+  }
+  function openCast() { showDev(myDev); castEl.hidden = false; $('castClose').focus(); wake(); }
+  function closeCast() { castEl.hidden = true; bCast.focus(); wake(); }
+  bCast.addEventListener('click', openCast);
+  $('castClose').addEventListener('click', closeCast);
+  castEl.addEventListener('click', (e) => { if (e.target === castEl) closeCast(); });
+  castEl.querySelectorAll('.tabs [data-dev]').forEach((b) => b.addEventListener('click', () => showDev(b.dataset.dev)));
 
   const bPal = $('bPal'), bpmEl = $('bpm');
   function setPalette(id) {
