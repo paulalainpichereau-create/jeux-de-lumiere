@@ -259,6 +259,8 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
 .tone span { display: flex; justify-content: space-between; color: var(--dim); font-size: 13px; }
 .tone input { width: 100%; }
 #toneHue { accent-color: #fff; background: linear-gradient(to right, #f0f, #f00, #ff0, #0f0, #0ff, #00f, #f0f); height: 6px; border-radius: 3px; }
+.steps { margin: 8px 0 12px; padding-left: 22px; display: grid; gap: 8px; }
+.steps li { line-height: 1.4; }
 /* packs */
 .packs { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; margin-bottom: 6px; }
 .packs .choice { min-height: 0; margin: 0; padding: 10px 14px; }
@@ -410,6 +412,28 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
         <label class="tone" for="toneLum"><span>Luminosité <output id="toneLumV"></output></span><input type="range" id="toneLum" min="50" max="150" step="5" value="100"></label>
       </div>
       <button type="button" id="toneReset">Remettre la tonalité d’origine</button>
+    </div>
+  </div>
+
+  <div class="sheet" id="installSheet" role="dialog" aria-modal="true" aria-labelledby="installTitle" hidden>
+    <div class="sheet-card">
+      <div class="sheet-head">
+        <h2 id="installTitle">Plein écran sur ce téléphone</h2>
+        <button type="button" id="installClose" aria-label="Fermer">Fermer</button>
+      </div>
+      <div id="installIos">
+        <p class="fit">Sur iPhone, Safari ne permet pas à une page web de passer en plein écran. La solution : installer l’appli sur l’écran d’accueil. Ouverte depuis son icône, elle s’affiche en plein écran, sans les barres de Safari.</p>
+        <ol class="steps">
+          <li>Dans Safari, touchez le bouton <b>Partager</b> (le carré avec une flèche vers le haut), en bas de l’écran.</li>
+          <li>Faites défiler et touchez <b>Sur l’écran d’accueil</b>, puis <b>Ajouter</b>.</li>
+          <li>Ouvrez <b>Lumières</b> depuis la nouvelle icône : plein écran, et l’appli marche même sans réseau.</li>
+        </ol>
+      </div>
+      <div id="installOther" hidden>
+        <p class="fit">Ce navigateur ne permet pas le plein écran pour une page web. Installez l’appli : menu du navigateur (⋮ ou ⋯) › <b>Installer l’application</b> ou <b>Ajouter à l’écran d’accueil</b>, puis ouvrez-la depuis son icône.</p>
+      </div>
+      <p class="warn" id="installFrame" hidden>Ici, c’est l’aperçu : faites-le depuis l’appli en ligne, à son adresse GitHub.</p>
+      <p class="fit">Astuce pour une soirée : branchez le téléphone sur le secteur. L’appli garde l’écran allumé tant qu’elle est ouverte.</p>
     </div>
   </div>
 
@@ -2522,7 +2546,21 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) { ensureCtx(); loadFiles(e.dataTransfer.files); }
   });
 
+  // iPhone Safari (and a few others) have no fullscreen for pages: the app installed on the home screen
+  // opens without the browser bars instead, so the button explains how to do that
+  const installed = (window.matchMedia && (matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches)) || navigator.standalone === true;
+  const noFsApi = !document.documentElement.requestFullscreen;
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+  const installEl = $('installSheet');
+  function openInstall() {
+    $('installIos').hidden = !isIOS; $('installOther').hidden = isIOS; $('installFrame').hidden = !inFrame;
+    installEl.hidden = false; $('installClose').focus(); wake();
+  }
+  function closeInstall() { installEl.hidden = true; wake(); }
+  $('installClose').addEventListener('click', closeInstall);
+  installEl.addEventListener('click', (e) => { if (e.target === installEl) closeInstall(); });
   bFull.addEventListener('click', async () => {
+    if (noFsApi) { if (!moreEl.hidden) closeSheet(moreEl); openInstall(); return; }
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
       else await document.documentElement.requestFullscreen();
@@ -2542,6 +2580,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     if (!moreEl.hidden) { if (k === 'escape') closeSheet(moreEl); return; }
     if (!optsEl.hidden) { if (k === 'escape') closeOpts(); return; }
     if (!palEl.hidden) { if (k === 'escape') closePal(); return; }
+    if (!installEl.hidden) { if (k === 'escape') closeInstall(); return; }
     if (e.target instanceof HTMLInputElement && /^(text|time)$/.test(e.target.type)) return; // typing is not a shortcut
     const onControl = e.target instanceof Element && e.target.closest('button,input');
     if (k === ' ' && !onControl) { e.preventDefault(); togglePause(); }
@@ -2616,7 +2655,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
   /* ---------- start ---------- */
   bSave.hidden = true;
   noteEl.hidden = true;
-  if (!document.documentElement.requestFullscreen) bFull.hidden = true;
+  bFull.hidden = noFsApi && installed;   // installed on the home screen: already full screen
   if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) bTab.hidden = true; // phones and tablets
   if (!inFrame && location.protocol === 'https:' && 'serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {}); // offline + installable when hosted
@@ -3614,8 +3653,13 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     else if (sound === 'tab') startTab();
     else if (sound === 'file') { ensureCtx(); fileIn.click(); }
     else startDemo();
+    let later = 1500;
+    if (noFsApi && !installed && !store.get('fsHint')) {
+      store.set('fsHint', '1'); later = 9000;
+      setTimeout(() => note('Pour le plein écran sur ce téléphone : Plus › Plein écran, qui explique comment installer l’appli.'), 1200);
+    }
     const season = seasonPack();
-    if (season && pack.id === 'mix') setTimeout(() => note('C’est la saison : touchez le nom de la scène, en bas, pour lancer le pack ' + PACK_BY_ID[season].name + '.'), 1500);
+    if (season && pack.id === 'mix') setTimeout(() => note('C’est la saison : touchez le nom de la scène, en bas, pour lancer le pack ' + PACK_BY_ID[season].name + '.'), later);
   }
   welEl.addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
