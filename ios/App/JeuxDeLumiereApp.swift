@@ -106,19 +106,18 @@ struct SpotifyTVView: View {
                     Text("Les lumières suivent la musique de Spotify ou Deezer, sans micro : sur la TV, et aussi dans l’onglet Lumières de ce téléphone.")
                         .foregroundStyle(.secondary)
 
-                    step(1, "Touchez l’icône Cast et choisissez votre Chromecast ou Google TV : les lumières s’affichent sur la TV.")
-                    HStack(spacing: 12) {
-                        CastButton().frame(width: 44, height: 44)
-                            .background(Circle().fill(Color.white.opacity(0.08)))
-                        if let name = cast.deviceName {
-                            Label("Sur \(name)", systemImage: "tv.fill").foregroundStyle(.green)
-                        } else if !CastLink.configured {
-                            Text("Identifiant Cast pas encore configuré : la TV n’affichera pas les lumières (voir ios/CHROMECAST.md).")
-                                .font(.footnote).foregroundStyle(.yellow)
+                    if CastLink.configured {
+                        step(1, "Touchez l’icône Cast et choisissez votre Chromecast ou Google TV : les lumières s’affichent sur la TV.")
+                        HStack(spacing: 12) {
+                            CastButton().frame(width: 44, height: 44)
+                                .background(Circle().fill(Color.white.opacity(0.08)))
+                            if let name = cast.deviceName {
+                                Label("Sur \(name)", systemImage: "tv.fill").foregroundStyle(.green)
+                            }
                         }
                     }
 
-                    step(2, "Sans Chromecast : sur l’appareil branché à la TV, ouvrez l’app web › Télécommande › Cet appareil est l’écran, et tapez ici son code. Avec Chromecast, ce code se remplit tout seul.")
+                    step(CastLink.configured ? 2 : 1, CastLink.configured ? "Sans Chromecast : sur l’appareil branché à la TV, ouvrez l’app Jeux de lumière (ou le site) › Plus › Télécommande › Cet appareil est l’écran, et tapez ici son code. Avec Chromecast, ce code se remplit tout seul." : "Pour la TV : sur l’appareil branché à la TV, ouvrez l’app Jeux de lumière (ou le site) › Plus › Télécommande › Cet appareil est l’écran, et tapez ici son code. Pour ce téléphone seul, rien à taper : l’onglet Lumières suit la musique.")
                     TextField("K7Q2M", text: $screenCode)
                         .font(.system(size: 28, weight: .bold, design: .monospaced))
                         .textInputAutocapitalization(.characters).autocorrectionDisabled()
@@ -130,7 +129,7 @@ struct SpotifyTVView: View {
                             if c.count == Signal.codeLength { cast.sendCode() }
                         }
 
-                    step(3, "Touchez le bouton rond, puis « Commencer la diffusion ».")
+                    step(CastLink.configured ? 3 : 2, "Touchez le bouton rond, puis « Commencer la diffusion ».")
                     HStack {
                         Spacer()
                         BroadcastButton().frame(width: 72, height: 72)
@@ -139,7 +138,7 @@ struct SpotifyTVView: View {
                         Spacer()
                     }
 
-                    step(4, "Ouvrez Spotify ou Deezer et lancez la musique, sur le haut-parleur ou une enceinte Bluetooth.")
+                    step(CastLink.configured ? 4 : 3, "Ouvrez Spotify ou Deezer et lancez la musique, sur le haut-parleur ou une enceinte Bluetooth.")
 
                     meter
                     status

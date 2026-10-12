@@ -2797,7 +2797,9 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
   /* ---------- start ---------- */
   bSave.hidden = true;
   noteEl.hidden = true;
-  bFull.hidden = noFsApi && installed;   // installed on the home screen: already full screen
+  // inside the Android or iPhone app (or installed on the home screen), the page is already full screen
+  const IN_APP = /JeuxDeLumiereApp/.test(navigator.userAgent);
+  bFull.hidden = IN_APP || (noFsApi && installed);
   if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) bTab.hidden = true; // phones and tablets
   if (!inFrame && location.protocol === 'https:' && 'serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {}); // offline + installable when hosted
@@ -3874,7 +3876,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     else if (sound === 'file') { ensureCtx(); fileIn.click(); }
     else startDemo();
     let later = 1500;
-    if (noFsApi && !installed && !store.get('fsHint')) {
+    if (noFsApi && !installed && !IN_APP && !store.get('fsHint')) {
       store.set('fsHint', '1'); later = 9000;
       setTimeout(() => note('Pour le plein écran sur ce téléphone : Plus › Plein écran, qui explique comment installer l’appli.'), 1200);
     }

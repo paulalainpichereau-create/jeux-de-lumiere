@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Confidentialité · Jeux de lumière</title>
+<meta name="description" content="Politique de confidentialité de l’application Jeux de lumière.">
+<link rel="icon" href="icon-192.png" type="image/png">
+<style>
+  :root { --bg: #07060e; --panel: #110e20; --ink: #efeaff; --dim: #a9a2c4; --accent: #ff4d94; --line: #2a2540; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  main { box-sizing: border-box; max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 28px; line-height: 1.2; margin: 0 0 6px; }
+  h2 { font-size: 19px; margin: 32px 0 8px; color: #fff; }
+  p, li { color: var(--dim); }
+  strong { color: var(--ink); }
+  .lead { font-size: 17px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+  ul { padding-left: 22px; }
+  a { color: var(--accent); }
+  .date { font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Politique de confidentialité</h1>
+  <p class="date">Application « Jeux de lumière » (site web, application Android et application iPhone). Mise à jour : 12 octobre 2026.</p>
+
+  <p class="lead">En bref : <strong>pas de compte, pas de publicité, pas de pistage, aucune donnée personnelle collectée ni vendue.</strong> Le son est analysé sur votre appareil et n’est jamais enregistré ni envoyé.</p>
+
+  <h2>Le micro et le son</h2>
+  <p>Les lumières suivent la musique. Pour cela, l’application écoute le micro (ou, sur iPhone, le son des autres applications pendant une diffusion que vous lancez vous-même). Le son est transformé sur l’appareil, en temps réel, en quelques niveaux (graves, médiums, aigus, battements). <strong>Le son n’est jamais enregistré, conservé ni transmis.</strong> Vous pouvez refuser l’accès au micro : le mode démo et la lecture de vos fichiers restent disponibles.</p>
+
+  <h2>Quand plusieurs appareils sont reliés</h2>
+  <p>Avec la télécommande, plusieurs écrans, l’application iPhone ou un Chromecast, les appareils échangent :</p>
+  <ul>
+    <li>les <strong>niveaux sonores</strong> calculés (des nombres, pas le son) ;</li>
+    <li>les <strong>réglages</strong> de la soirée (scène, couleurs, message affiché…) ;</li>
+    <li>un <strong>code de soirée</strong> de 5 caractères tiré au hasard.</li>
+  </ul>
+  <p>Pour se trouver, les appareils passent par des services de mise en relation publics : PeerJS (0.peerjs.com), puis une liaison directe entre appareils (WebRTC), et le relais EMQX (broker.emqx.io). Ces services transmettent ces informations en temps réel ; l’application ne les conserve pas et ne les associe à aucune identité.</p>
+
+  <h2>Messages des invités et téléphones-lumières</h2>
+  <p>Si l’hôte active cette option, les invités peuvent scanner un QR code pour envoyer un message (avec un prénom s’ils le souhaitent), un émoji, ou transformer leur téléphone en lumière. Ces messages passent par le relais EMQX pour s’afficher quelques secondes sur les écrans de la soirée, puis disparaissent. <strong>Ils ne sont ni enregistrés ni conservés.</strong> Un filtre bloque les insultes courantes et les liens, et l’hôte peut effacer l’écran ou désactiver l’option à tout moment. Le flash de l’appareil photo (Android, facultatif) n’utilise pas l’image de la caméra.</p>
+
+  <h2>Ce qui reste sur votre appareil</h2>
+  <p>Vos réglages (scène, couleurs, pack, prénom pour les messages…) sont gardés dans le stockage local de l’appareil pour la prochaine fois. Ils ne quittent pas l’appareil, et s’effacent avec les données du site ou de l’application.</p>
+
+  <h2>Chromecast</h2>
+  <p>Pour afficher les lumières sur un Chromecast, l’application utilise le service Google Cast, qui cherche les appareils sur votre réseau Wi-Fi local. Les règles de confidentialité de Google s’appliquent à ce service.</p>
+
+  <h2>Hébergement</h2>
+  <p>L’application est hébergée par GitHub Pages (GitHub, Inc.), qui peut tenir des journaux techniques de connexion (adresse IP, par exemple) pour son fonctionnement et sa sécurité.</p>
+
+  <h2>Enfants</h2>
+  <p>L’application ne demande aucune information personnelle et ne contient ni publicité ni achat. Les messages des invités sont filtrés et sous le contrôle de l’hôte.</p>
+
+  <h2>Vos droits et contact</h2>
+  <p>Comme l’application ne collecte pas de données personnelles, il n’y a rien à consulter, corriger ou supprimer de notre côté. Pour toute question, écrivez à l’adresse de contact indiquée sur la fiche de l’application (Google Play ou App Store).</p>
+
+  <p><a href="./">← Retour à l’application</a></p>
+</main>
+</body>
+</html>
