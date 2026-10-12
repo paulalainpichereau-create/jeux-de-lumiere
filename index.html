@@ -323,6 +323,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
       <h2>Votre téléphone dans la soirée</h2>
       <button type="button" id="gLight" class="primary big">💡 Mon téléphone devient une lumière</button>
       <p class="fit">Il s’allume aux couleurs de la TV et au rythme de la musique, avec les autres téléphones. Posez-le écran vers le haut, ou levez-le pendant les refrains !</p>
+      <label class="check" for="gTorch"><input type="checkbox" id="gTorch"> Allumer aussi le flash sur les battements (Android ; déconseillé aux personnes sensibles aux flashs)</label>
       <h3>Un message pour l’écran</h3>
       <p class="fit">Il s’affiche sur la TV de la soirée, avec votre prénom.</p>
       <label class="field" for="gName"><span>Votre prénom</span>
@@ -512,6 +513,21 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
       <h3>Messages des invités</h3>
       <label class="check" for="guestOn"><input type="checkbox" id="guestOn"> Les invités scannent un QR code : leur téléphone devient une lumière, et ils envoient messages et émojis à l’écran</label>
       <label class="check" for="guestQrOn"><input type="checkbox" id="guestQrOn" checked> Afficher le QR code dans un coin de l’écran</label>
+      <div class="fields">
+        <label class="field" for="phoneFx"><span>Effet des téléphones-lumières</span>
+          <select id="phoneFx">
+            <option value="auto">Automatique, selon la scène</option>
+            <option value="pulse">Pulsation : tous ensemble</option>
+            <option value="wave">Vague : l’un après l’autre</option>
+            <option value="pingpong">Ping-pong : deux équipes de couleurs</option>
+            <option value="sparkle">Étincelles : au hasard dans la pièce</option>
+            <option value="rainbow">Arc-en-ciel : une couleur par téléphone</option>
+            <option value="eq">Égaliseur : une barre qui monte et descend</option>
+            <option value="lighter">Briquets : une flamme, pour les slows</option>
+            <option value="calm">Respiration : lueur douce</option>
+          </select>
+        </label>
+      </div>
       <div class="screen-box" id="guestBox" hidden>
         <div class="qr" id="guestQrBig" aria-label="QR code pour les invités"></div>
         <div>
@@ -2768,7 +2784,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     return c;
   }
   function stateForRemote() {
-    return { sel, pack: pack.id, palette: pal.id, autoSet: [...autoSet], opt: { text: OPT.text, mode: OPT.mode, cd: OPT.cd, strobe: OPT.strobe, guests: GU.on, guestQr: GU.qr } };
+    return { sel, pack: pack.id, palette: pal.id, autoSet: [...autoSet], opt: { text: OPT.text, mode: OPT.mode, cd: OPT.cd, strobe: OPT.strobe, guests: GU.on, guestQr: GU.qr, phoneFx } };
   }
   function setBadge(text) { remoteBadge.hidden = !text; remoteBadge.textContent = text || ''; }
   function rcReset() {
@@ -2806,6 +2822,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
       OPT.cd = /^\d{2}:\d{2}$/.test(m.opt.cd || '') ? m.opt.cd : '';
       OPT.strobe = !!m.opt.strobe && !REDUCE;
       if (typeof m.opt.guests === 'boolean') { GU.on = m.opt.guests; GU.qr = m.opt.guestQr !== false; guestUi(); }
+      if (typeof m.opt.phoneFx === 'string' && $('phoneFx').querySelector('option[value="' + m.opt.phoneFx + '"]')) { phoneFx = m.opt.phoneFx; $('phoneFx').value = phoneFx; }
       msgText.value = OPT.text; msgMode.value = OPT.mode; cdTime.value = OPT.cd; strobeBox.checked = OPT.strobe;
     }
   }
@@ -3196,7 +3213,24 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
      25 s is no longer counted. */
   let lightDropAt = -1e9;
   const LC = { last: 0, beatAt: 0 };
-  const WAVE_SCENES = ['chase', 'floor', 'disco', 'bars', 'analyser', 'grid', 'sheet'];
+  // the effect on the guests' phones, from the scene on the TV (unless the host has chosen one)
+  const PHONE_FX = {
+    chase: 'wave', floor: 'wave', grid: 'wave',
+    disco: 'sparkle', sparks: 'sparkle', newyear: 'sparkle', xmas: 'sparkle',
+    bars: 'eq', analyser: 'eq', scope: 'eq',
+    lasers: 'pingpong', tunnel: 'pingpong', sheet: 'pingpong', halloween: 'pingpong',
+    kaleido: 'rainbow', psyche: 'rainbow', plasma: 'rainbow', waves: 'rainbow', birthday: 'rainbow', easter: 'rainbow',
+    valentine: 'lighter', aurora: 'calm', ambiance: 'calm'
+  };
+  const SLOW_PACKS = ['lounge', 'mariage', 'valentin', 'noel'];
+  let phoneFx = store.get('phoneFx') || 'auto';
+  function phoneMode(live, now) {
+    if (!live) return 'idle';
+    if (now - lightDropAt < 1500) return 'drop';
+    if (phoneFx !== 'auto') return phoneFx;
+    if (calmMode) return SLOW_PACKS.includes(pack.id) ? 'lighter' : 'calm';
+    return PHONE_FX[current] || 'pulse';
+  }
   function litPhones(now) {
     for (const [id, t] of GU.lights) if (now - t > 25000) GU.lights.delete(id);
     return GU.lights.size;
@@ -3208,7 +3242,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     const c = GU.mq;
     if (!c || !c.connected || RC.follower || !GU.code || !litPhones(now)) return;
     const live = A.mode !== 'idle' && !A.paused;
-    const mode = !live ? 'idle' : now - lightDropAt < 1500 ? 'drop' : calmMode ? 'calm' : WAVE_SCENES.includes(current) ? 'wave' : 'pulse';
+    const mode = phoneMode(live, now);
     const msg = {
       h: Math.round(((mapHue(S.hue) % 360) + 360) % 360), h2: Math.round(((mapHue(S.hue + 150) % 360) + 360) % 360),
       lv: Math.round(Math.min(1, S.loud ?? S.level) * 100) / 100, b: S.beats, bpm: live ? tempo() : 0,
@@ -3221,6 +3255,8 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     $('gLightsN').textContent = n ? (n === 1 ? '1 téléphone allumé' : n + ' téléphones allumés') : '';
   }, 2000);
   $('guestOn').addEventListener('change', () => { GU.on = $('guestOn').checked; store.set('guestOn', GU.on ? '1' : '0'); guestUi(); remoteSync(); });
+  $('phoneFx').value = phoneFx;
+  $('phoneFx').addEventListener('change', () => { phoneFx = $('phoneFx').value; store.set('phoneFx', phoneFx); remoteSync(); });
   $('guestQrOn').addEventListener('change', () => { GU.qr = $('guestQrOn').checked; store.set('guestQr', GU.qr ? '1' : '0'); guestUi(); remoteSync(); });
   $('guestClear').addEventListener('click', () => {
     clearGuests();
@@ -3274,41 +3310,99 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     // the phone as a light: full-screen colour that follows the cue from the main screen
     const lp = $('lightPage'), hint = $('lightHint');
     const slot = parseInt(gid.slice(0, 4), 36) % 4;   // its place in the "wave" across the room's phones
-    const L = { on: false, cue: null, at: 0, phase0: 0, period: 0, lastB: -1, k: -1, flash: 0, white: 0, raf: 0, hello: 0, lock: null, t0: 0 };
+    const L = { on: false, cue: null, at: 0, phase0: 0, period: 0, lastB: -1, k: -1, flash: 0, white: 0, raf: 0, hello: 0, lock: null, t0: 0, lv: 0, spark: 0, half: -1, peak: 0, bAt: 0 };
     let lsub = null;
+    // a few pseudo-random numbers that every phone works out the same way for a given beat
+    const hash = (n) => { n = Math.imul(n ^ (n >>> 15), 0x2c1b3c6d); n = Math.imul(n ^ (n >>> 12), 0x297a2d39); return ((n ^ (n >>> 15)) >>> 0) / 4294967296; };
+    const seed = parseInt(gid.slice(0, 6), 36) | 0;
+    const hsl = (h, s, l) => `hsl(${Math.round(((h % 360) + 360) % 360)},${Math.round(s)}%,${Math.round(Math.max(0, Math.min(100, l)))}%)`;
     const lightFrame = (now) => {
       if (!L.on) return;
       L.raf = requestAnimationFrame(lightFrame);
       const dt = Math.min(0.1, (now - (L.t0 || now)) / 1000); L.t0 = now;
       const q = L.cue, fresh = q && now - L.at < 3000 && q.m !== 'idle';
       hint.hidden = !!fresh;
-      if (!fresh) { lp.style.background = '#000'; return; }
+      if (!fresh) { lp.style.background = '#000'; torch(false); return; }
       // our own beat clock, set again by every cue; falls back on the beat counter without a tempo
-      let k;
-      if (L.period) k = q.b + Math.floor((now - L.phase0) / L.period); else k = q.b; // beat number, counted on from the last one we heard of
-      if (k !== L.k) { if (L.k !== -1) L.flash = 1; L.k = k; }
+      let k, frac = 0;
+      if (L.period) { const x = (now - L.phase0) / L.period; k = q.b + Math.floor(x); frac = x - Math.floor(x); }
+      else { const x = (now - L.bAt) / 600; k = q.b + Math.floor(x); frac = x - Math.floor(x); } // no tempo yet: keep moving at ~100 BPM until the next beat
+      const newBeat = k !== L.k;
+      if (newBeat) { if (L.k !== -1) L.flash = 1; L.k = k; }
       L.flash *= Math.exp(-dt * (REDUCE ? 4 : 7));
       L.white *= Math.exp(-dt * 2.2);
-      let h = q.h, sat = 95, lig;
-      if (q.m === 'calm') {
-        lig = 8 + (10 + 22 * q.lv) * (0.5 + 0.5 * Math.sin(now / 1300 + slot * 1.6));
-      } else if (q.m === 'wave') {
+      L.lv += (q.lv - L.lv) * (1 - Math.exp(-dt * (q.lv > L.lv ? 18 : 5)));   // smooth between two cues
+      L.spark *= Math.exp(-dt * 5);
+      const m = q.m, lv = L.lv, fl = L.flash;
+      let bg, lit = fl > 0.6;
+      if (m === 'calm') {
+        bg = hsl(q.h, 95, 8 + (10 + 22 * lv) * (0.5 + 0.5 * Math.sin(now / 1300 + slot * 1.6)));
+        lit = false;
+      } else if (m === 'wave') {
         const mine = ((k % 4) + 4) % 4 === slot;
-        if (!mine) h = q.h2;
-        lig = mine ? 22 + 40 * L.flash + 12 * q.lv : 5 + 8 * q.lv;
+        bg = mine ? hsl(q.h, 95, 22 + 40 * fl + 12 * lv) : hsl(q.h2, 95, 5 + 8 * lv);
+        lit = lit && mine;
+      } else if (m === 'pingpong') {
+        // two teams swap colour and brightness on every beat
+        const on = ((k + slot) & 1) === 0;
+        bg = on ? hsl(q.h, 95, 26 + 34 * fl + 10 * lv) : hsl(q.h2, 90, 6 + 6 * lv);
+        lit = lit && on;
+      } else if (m === 'sparkle') {
+        // on each half beat, a random part of the room's phones (more when it's loud) gives a white sparkle
+        const half = k * 2 + (frac >= 0.5 ? 1 : 0);
+        if (half !== L.half) { L.half = half; if (hash(half * 7919 + seed) < 0.18 + 0.45 * lv) L.spark = 1; }
+        const sp = REDUCE ? L.spark * 0.5 : L.spark;
+        bg = sp > 0.03 ? hsl(q.h, 100 * (1 - sp * 0.8), 6 + 84 * sp) : hsl(q.h, 90, 5 + 5 * lv);
+        lit = L.spark > 0.7;
+      } else if (m === 'rainbow') {
+        // each phone its own colour, all turning a step on every beat
+        bg = hsl(q.h + slot * 90 + k * 30, 95, 18 + 26 * lv + 22 * fl);
+      } else if (m === 'eq') {
+        // a level meter filling the screen from the bottom, with a peak marker
+        const top = Math.round(Math.min(100, (0.06 + Math.pow(lv, 1.8) * 0.86 + fl * 0.1) * 100));
+        L.peak = Math.max(top, (L.peak || 0) - dt * 45);
+        const pk = Math.round(L.peak);
+        bg = `linear-gradient(to top, ${hsl(q.h, 95, 45)} 0%, ${hsl(q.h2, 95, 55)} ${top}%, #000 ${top}%, #000 ${Math.max(top, pk - 2)}%, #fff ${Math.max(top, pk - 2)}%, #fff ${pk}%, #000 ${pk}%)`;
+        lit = false;
+      } else if (m === 'lighter') {
+        // a lighter flame that sways with the music: for slow songs, phones held up
+        const t = now / 1000;
+        const flick = 0.85 + 0.1 * Math.sin(t * 13 + seed) + 0.06 * Math.sin(t * 29 + seed * 0.7) + 0.08 * lv;
+        const sway = 50 + 2.4 * Math.sin(t * 1.3 + slot);
+        bg = `radial-gradient(ellipse ${Math.round(9 * flick)}% ${Math.round(21 * flick)}% at ${sway.toFixed(1)}% 58%, #fffbe8 0%, #ffd77a 22%, #ff9a2e 48%, rgba(255,80,0,0.55) 68%, rgba(255,60,0,0) 100%),`
+          + ` radial-gradient(circle at 50% 66%, rgba(255,140,40,${(0.18 + 0.12 * lv).toFixed(2)}) 0%, rgba(0,0,0,0) 45%), #050302`;
+        lit = false;
       } else {
-        lig = 10 + 26 * q.lv + 30 * L.flash;
+        bg = hsl(q.h, 95, 10 + 26 * lv + 30 * fl);
       }
-      if (q.m === 'drop' && L.white < 0.05 && !REDUCE && !L.dropDone) { L.white = 1; L.dropDone = true; }
-      if (q.m !== 'drop') L.dropDone = false;
-      lig = Math.min(70, lig);
-      const w = L.white;
-      lp.style.background = w > 0.02
-        ? `hsl(${h},${Math.round(sat * (1 - w))}%,${Math.round(lig + (92 - lig) * w)}%)`
-        : `hsl(${h},${sat}%,${Math.round(lig)}%)`;
+      if (m === 'drop' && L.white < 0.05 && !REDUCE && !L.dropDone) { L.white = 1; L.dropDone = true; }
+      if (m !== 'drop') L.dropDone = false;
+      if (L.white > 0.02) { bg = hsl(q.h, 95 * (1 - L.white), 30 + 62 * L.white); lit = L.white > 0.6; }
+      lp.style.background = bg;
+      torch(lit, now);
     };
+    // the camera's flash as an extra light, on the beats only (Android; at most twice a second)
+    const T = { track: null, on: false, lastOn: 0, want: false };
+    async function torchStart() {
+      try {
+        const st = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } });
+        const tr = st.getVideoTracks()[0];
+        const caps = tr.getCapabilities ? tr.getCapabilities() : {};
+        if (!caps.torch) { tr.stop(); gs.textContent = 'Ce téléphone ne permet pas d’allumer le flash depuis le navigateur (c’est le cas des iPhone).'; return; }
+        T.track = tr;
+      } catch (e) { gs.textContent = 'Flash non autorisé : l’écran seul s’allume.'; }
+    }
+    function torchStop() { try { if (T.track) T.track.stop(); } catch (e) {} T.track = null; T.on = false; }
+    function torch(on, now = performance.now()) {
+      if (!T.track || REDUCE) return;
+      if (on && !T.on && now - T.lastOn < 500) return;
+      if (on === T.on) return;
+      T.on = on; if (on) T.lastOn = now;
+      T.track.applyConstraints({ advanced: [{ torch: on }] }).catch(() => {});
+    }
     const lightOn = async () => {
       L.on = true; lp.hidden = false; hint.hidden = false;
+      if ($('gTorch').checked && !T.track) torchStart();
       try { if (lp.requestFullscreen) await lp.requestFullscreen(); } catch (e) {}
       try { if (navigator.wakeLock) L.lock = await navigator.wakeLock.request('screen'); } catch (e) {}
       try {
@@ -3324,6 +3418,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
             if (!m || typeof m.h !== 'number') return;
             const now = performance.now();
             L.cue = m; L.at = now;
+            if (m.b !== L.lastB) { L.lastB = m.b; L.bAt = now - (Number(m.ago) || 0) - 150; }
             const bpm = Number(m.bpm) || 0;
             if (bpm >= 60 && bpm <= 200) {
               L.period = 60000 / bpm;
@@ -3339,6 +3434,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     };
     const lightOff = () => {
       L.on = false; lp.hidden = true; cancelAnimationFrame(L.raf); clearInterval(L.hello);
+      torchStop();
       try { if (document.fullscreenElement) document.exitFullscreen(); } catch (e) {}
       try { if (L.lock) L.lock.release(); } catch (e) {}
       L.lock = null;
