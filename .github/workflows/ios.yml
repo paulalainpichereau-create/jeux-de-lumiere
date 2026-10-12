@@ -5,6 +5,9 @@ on:
     paths: ['ios/**', '.github/workflows/ios.yml']
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-15
@@ -31,3 +34,12 @@ jobs:
         with:
           name: JeuxDeLumiere-non-signe
           path: ios/JeuxDeLumiere-non-signe.ipa
+      # also attach it to a fixed release, so it can be downloaded with a plain link
+      - name: Publish to the "prototype-iphone" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view prototype-iphone >/dev/null 2>&1 || \
+            gh release create prototype-iphone --title "Prototype iPhone" --prerelease \
+              --notes "Application iPhone de test, non signée : à installer avec Sideloadly ou AltStore (voir ios/INSTALLATION.md)."
+          gh release upload prototype-iphone ios/JeuxDeLumiere-non-signe.ipa --clobber
