@@ -35,8 +35,9 @@ jobs:
           cd ios
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/JeuxDeLumiere.app Payload/
-          ls Payload/JeuxDeLumiere.app/PlugIns Payload/JeuxDeLumiere.app/Frameworks
-          /usr/libexec/PlistBuddy -c 'Print :JDLCastAppID' Payload/JeuxDeLumiere.app/Info.plist
+          ls Payload/JeuxDeLumiere.app/PlugIns
+          echo "::notice::Frameworks: $(ls Payload/JeuxDeLumiere.app/Frameworks 2>/dev/null | tr '\n' ' ')"
+          echo "::notice::Cast app ID: $(/usr/libexec/PlistBuddy -c 'Print :JDLCastAppID' Payload/JeuxDeLumiere.app/Info.plist)"
           zip -qry JeuxDeLumiere-non-signe.ipa Payload
       - uses: actions/upload-artifact@v4
         with:
