@@ -245,6 +245,20 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
 .light-page p { margin: 0; padding: 24px; text-align: center; font: 600 18px/1.4 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; color: rgba(255, 255, 255, 0.7); text-shadow: 0 0 6px rgba(0, 0, 0, 0.6); }
 .light-page small { font-size: 13px; font-weight: 400; }
 body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.guest-mode .guest-qr { display: none !important; }
+/* colours */
+.swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
+.swatch { display: grid; gap: 6px; padding: 8px; text-align: left; text-transform: none; letter-spacing: 0; font: 500 13px/1.2 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+.swatch i { display: block; height: 22px; border-radius: 4px; }
+.swatch[aria-pressed="true"] { outline: 2px solid #fff; outline-offset: 1px; }
+.mine { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.mine-c { position: relative; display: grid; place-items: center; }
+.mine-c input { width: 52px; height: 44px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: none; cursor: pointer; }
+.mine-c span { position: absolute; right: 3px; bottom: 1px; font: 600 10px var(--f-mono); color: #fff; text-shadow: 0 0 3px #000; pointer-events: none; }
+.tones { display: grid; gap: 10px; margin-bottom: 10px; }
+.tone { display: grid; gap: 4px; }
+.tone span { display: flex; justify-content: space-between; color: var(--dim); font-size: 13px; }
+.tone input { width: 100%; }
+#toneHue { accent-color: #fff; background: linear-gradient(to right, #f0f, #f00, #ff0, #0f0, #0ff, #00f, #f0f); height: 6px; border-radius: 3px; }
 /* packs */
 .packs { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; margin-bottom: 6px; }
 .packs .choice { min-height: 0; margin: 0; padding: 10px 14px; }
@@ -351,7 +365,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
         <button type="button" data-scene="auto" aria-pressed="true">Auto</button>
         <button type="button" id="bPreset" hidden>Effet suivant</button>
       </div>
-      <button type="button" id="bPal" aria-label="Changer la palette de couleurs">Couleurs : Arc-en-ciel</button>
+      <button type="button" id="bPal" aria-haspopup="dialog" aria-label="Choisir les couleurs">Couleurs : Arc-en-ciel</button>
       <button type="button" id="bMore" aria-haspopup="dialog">Plus</button>
     </div>
   </section>
@@ -368,6 +382,34 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
         <button type="button" id="bFile" class="choice" aria-pressed="false"><b>De mes fichiers</b><span>MP3, WAV ou M4A de cet appareil.</span></button>
         <button type="button" id="bDemo" class="choice" aria-pressed="false"><b>Juste essayer</b><span>Un morceau de démonstration.</span></button>
       </div>
+    </div>
+  </div>
+
+  <div class="sheet" id="palSheet" role="dialog" aria-modal="true" aria-labelledby="palTitle" hidden>
+    <div class="sheet-card">
+      <div class="sheet-head">
+        <h2 id="palTitle">Couleurs</h2>
+        <button type="button" id="palClose" aria-label="Fermer">Fermer</button>
+      </div>
+      <p class="fit">Les scènes prennent les couleurs de la palette choisie (les scènes de fêtes gardent les leurs). Les réglages du bas changent la tonalité de tout ce qui s’affiche.</p>
+      <h3>Palettes</h3>
+      <div class="swatches" id="palPicks"></div>
+      <h3>Mes couleurs</h3>
+      <div class="mine">
+        <label class="mine-c"><input type="color" id="myC1" value="#ff2d95"><span>1</span></label>
+        <label class="mine-c"><input type="color" id="myC2" value="#2de2ff"><span>2</span></label>
+        <label class="mine-c"><input type="color" id="myC3" value="#ffd23d"><span>3</span></label>
+        <label class="check" for="myC3on"><input type="checkbox" id="myC3on" checked> 3 couleurs</label>
+        <button type="button" id="bMine" class="primary">Utiliser mes couleurs</button>
+      </div>
+      <p class="fit">Par exemple les couleurs d’un club, d’un mariage ou d’un anniversaire. Le blanc, le gris et le noir n’ont pas de couleur : choisissez des teintes vives.</p>
+      <h3>Tonalité</h3>
+      <div class="tones">
+        <label class="tone" for="toneHue"><span>Teinte <output id="toneHueV"></output></span><input type="range" id="toneHue" min="-180" max="180" step="5" value="0"></label>
+        <label class="tone" for="toneSat"><span>Intensité <output id="toneSatV"></output></span><input type="range" id="toneSat" min="30" max="160" step="5" value="100"></label>
+        <label class="tone" for="toneLum"><span>Luminosité <output id="toneLumV"></output></span><input type="range" id="toneLum" min="50" max="150" step="5" value="100"></label>
+      </div>
+      <button type="button" id="toneReset">Remettre la tonalité d’origine</button>
     </div>
   </div>
 
@@ -654,7 +696,8 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     { id: 'champagne', name: 'Champagne', hues: [45, 210, 45, 300], pack: true }
   ];
   let pal = PALETTES[0];
-  function mapHue(h) {
+  function mapHue(h) { return mapHueFor(pal, h); }
+  function mapHueFor(pal, h) {
     if (pal.hues) {
       const n = pal.hues.length, t = ((((h % 360) + 360) % 360) / 360) * n, i = Math.floor(t) % n, f = t - Math.floor(t);
       const a = pal.hues[i], b = pal.hues[(i + 1) % n];
@@ -2498,6 +2541,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     if (!srcEl.hidden) { if (k === 'escape') closeSheet(srcEl); return; }
     if (!moreEl.hidden) { if (k === 'escape') closeSheet(moreEl); return; }
     if (!optsEl.hidden) { if (k === 'escape') closeOpts(); return; }
+    if (!palEl.hidden) { if (k === 'escape') closePal(); return; }
     if (e.target instanceof HTMLInputElement && /^(text|time)$/.test(e.target.type)) return; // typing is not a shortcut
     const onControl = e.target instanceof Element && e.target.closest('button,input');
     if (k === ' ' && !onControl) { e.preventDefault(); togglePause(); }
@@ -2644,8 +2688,79 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     setPalette(next.id);
     if (pack.id === 'mix') store.set('userPal', next.id);
   }
-  bPal.addEventListener('click', nextPalette);
+  /* colour panel: every palette with a preview, your own colours, and the tone of the whole picture */
+  const palEl = $('palSheet');
+  const hexHue = (hex) => {
+    const n = parseInt(hex.slice(1), 16), r = (n >> 16 & 255) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+    if (!d) return 0;
+    const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return Math.round(((h * 60) + 360) % 360);
+  };
+  const MINE = { id: 'perso', name: 'Mes couleurs', hues: [330, 190, 48] };
+  PALETTES.push(MINE);
+  function loadMine(cols) {
+    if (!Array.isArray(cols) || cols.length < 2) return;
+    cols = cols.slice(0, 3).filter((c) => /^#[0-9a-f]{6}$/i.test(c));
+    if (cols.length < 2) return;
+    MINE.cols = cols; MINE.hues = cols.map(hexHue);
+    $('myC1').value = cols[0]; $('myC2').value = cols[1];
+    $('myC3on').checked = cols.length > 2; if (cols[2]) $('myC3').value = cols[2];
+  }
+  try { loadMine(JSON.parse(store.get('mine') || 'null')); } catch (e) {}
+  function previewOf(p) {
+    const stops = [];
+    for (let i = 0; i <= 12; i++) stops.push(`hsl(${Math.round(mapHueFor(p, i * 30))},90%,55%)`);
+    return `linear-gradient(to right, ${stops.join(',')})`;
+  }
+  function paintSwatches() {
+    const root = $('palPicks'); root.replaceChildren();
+    PALETTES.filter((p) => p.id !== 'perso' || MINE.cols).forEach((p) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'swatch'; b.dataset.pal = p.id;
+      b.setAttribute('aria-pressed', String(p.id === pal.id));
+      const i = document.createElement('i'); i.style.background = previewOf(p);
+      const t = document.createElement('span'); t.textContent = p.name;
+      b.append(i, t); root.appendChild(b);
+    });
+  }
+  function choosePalette(id) {
+    setPalette(id);
+    if (pack.id === 'mix') store.set('userPal', id);
+    paintSwatches();
+  }
+  palEl.addEventListener('click', (e) => {
+    if (e.target === palEl) { closePal(); return; }
+    const b = e.target.closest('[data-pal]'); if (b) choosePalette(b.dataset.pal);
+  });
+  function useMine() {
+    const cols = [$('myC1').value, $('myC2').value]; if ($('myC3on').checked) cols.push($('myC3').value);
+    loadMine(cols); store.set('mine', JSON.stringify(MINE.cols));
+    choosePalette('perso');
+  }
+  $('bMine').addEventListener('click', useMine);
+  ['myC1', 'myC2', 'myC3'].forEach((id) => $(id).addEventListener('input', () => { if (pal.id === 'perso') useMine(); }));
+  $('myC3on').addEventListener('change', () => { if (pal.id === 'perso') useMine(); });
+  // tone: a filter over the whole picture (lights and MilkDrop); the guests' phones get the hue shift too
+  const TONE = { h: 0, s: 100, l: 100 };
+  function applyTone(sync = true) {
+    $('toneHue').value = TONE.h; $('toneSat').value = TONE.s; $('toneLum').value = TONE.l;
+    $('toneHueV').textContent = TONE.h ? (TONE.h > 0 ? '+' : '') + TONE.h + '°' : 'd’origine';
+    $('toneSatV').textContent = TONE.s === 100 ? 'normale' : TONE.s < 100 ? 'plus pâle (' + TONE.s + ' %)' : 'plus vive (' + TONE.s + ' %)';
+    $('toneLumV').textContent = TONE.l === 100 ? 'normale' : TONE.l + ' %';
+    const f = (TONE.h ? `hue-rotate(${TONE.h}deg) ` : '') + (TONE.s !== 100 ? `saturate(${TONE.s}%) ` : '') + (TONE.l !== 100 ? `brightness(${TONE.l}%)` : '');
+    cv.style.filter = f.trim(); mdCv.style.filter = f.trim();
+    store.set('tone', JSON.stringify(TONE));
+    if (sync) remoteSync();
+  }
+  try { const t = JSON.parse(store.get('tone') || 'null'); if (t) { TONE.h = clamp(+t.h || 0, -180, 180); TONE.s = clamp(+t.s || 100, 30, 160); TONE.l = clamp(+t.l || 100, 50, 150); } } catch (e) {}
+  [['toneHue', 'h'], ['toneSat', 's'], ['toneLum', 'l']].forEach(([id, k]) => $(id).addEventListener('input', () => { TONE[k] = Number($(id).value); applyTone(); }));
+  $('toneReset').addEventListener('click', () => { TONE.h = 0; TONE.s = 100; TONE.l = 100; applyTone(); });
+  function openPal() { paintSwatches(); palEl.hidden = false; $('palClose').focus(); wake(); }
+  function closePal() { palEl.hidden = true; bPal.focus(); wake(); }
+  $('palClose').addEventListener('click', closePal);
+  bPal.addEventListener('click', openPal);
   setPalette(store.get('palette'));
+  applyTone(false);
   setInterval(() => {
     const b = A.mode !== 'idle' && !A.paused ? tempo() : 0;
     bpmEl.hidden = !b;
@@ -2784,7 +2899,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     return c;
   }
   function stateForRemote() {
-    return { sel, pack: pack.id, palette: pal.id, autoSet: [...autoSet], opt: { text: OPT.text, mode: OPT.mode, cd: OPT.cd, strobe: OPT.strobe, guests: GU.on, guestQr: GU.qr, phoneFx } };
+    return { sel, pack: pack.id, palette: pal.id, mine: MINE.cols || null, tone: Object.assign({}, TONE), autoSet: [...autoSet], opt: { text: OPT.text, mode: OPT.mode, cd: OPT.cd, strobe: OPT.strobe, guests: GU.on, guestQr: GU.qr, phoneFx } };
   }
   function setBadge(text) { remoteBadge.hidden = !text; remoteBadge.textContent = text || ''; }
   function rcReset() {
@@ -2814,7 +2929,12 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
   function applyState(m) {
     if (typeof m.sel === 'string' && (m.sel === 'auto' || SCENE_NAMES[m.sel])) { sel = m.sel; markScene(); }
     if (typeof m.pack === 'string' && PACK_BY_ID[m.pack]) setPack(m.pack, { quiet: true, keepPalette: true });
+    if (Array.isArray(m.mine)) loadMine(m.mine);
     if (typeof m.palette === 'string') setPalette(m.palette);
+    if (m.tone && typeof m.tone === 'object') {
+      TONE.h = clamp(Number(m.tone.h) || 0, -180, 180); TONE.s = clamp(Number(m.tone.s) || 100, 30, 160); TONE.l = clamp(Number(m.tone.l) || 100, 50, 150);
+      applyTone(false);
+    }
     if (Array.isArray(m.autoSet)) { autoSet = new Set(m.autoSet.filter((id) => ORDER.includes(id))); paintStars(); }
     if (m.opt && typeof m.opt === 'object') {
       OPT.text = String(m.opt.text || '').slice(0, 80);
@@ -3244,7 +3364,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     const live = A.mode !== 'idle' && !A.paused;
     const mode = phoneMode(live, now);
     const msg = {
-      h: Math.round(((mapHue(S.hue) % 360) + 360) % 360), h2: Math.round(((mapHue(S.hue + 150) % 360) + 360) % 360),
+      h: Math.round(((mapHue(S.hue) + TONE.h) % 360 + 360) % 360), h2: Math.round(((mapHue(S.hue + 150) + TONE.h) % 360 + 360) % 360),
       lv: Math.round(Math.min(1, S.loud ?? S.level) * 100) / 100, b: S.beats, bpm: live ? tempo() : 0,
       ago: Math.round(now - LC.beatAt), m: mode
     };

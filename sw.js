@@ -1,5 +1,5 @@
 // Keeps the app working offline once it has been opened once.
-const CACHE = 'jdl-v20';
+const CACHE = 'jdl-v21';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-180.png', 'vendor/butterchurn.min.js', 'vendor/butterchurnPresets.min.js', 'vendor/peerjs.min.js', 'vendor/qrcode.js', 'vendor/mqtt.min.js'];
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
