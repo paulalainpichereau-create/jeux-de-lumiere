@@ -1398,68 +1398,221 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
   }
 
-  // Halloween: full moon, bats crossing it, pumpkins whose faces light up on the beat, ground fog
-  const BATS = Array.from({ length: 16 }, () => ({ x: Math.random(), y: rnd(0.08, 0.55), s: rnd(0.6, 1.4), ph: rnd(0, 6.3), v: rnd(0.03, 0.08) }));
-  const PUMP = [0, 0, 0];
-  let pumpTurn = 0;
+  // Halloween: a haunted night that moves with the music. Bats burst out of the moon on the beat, ghosts drift
+  // and one swoops at the viewer, pumpkins hop with flickering candles, dead trees sway, eyes blink in the dark,
+  // a spider rides the bass, clouds slide over the moon. Big kicks (at most every 6 s) bring a lightning bolt;
+  // it brightens the sky softly instead of flashing, and is skipped when the device asks for reduced motion.
+  const BATS = Array.from({ length: 22 }, () => ({ x: Math.random(), y: rnd(0.06, 0.55), s: rnd(0.7, 1.5), ph: rnd(0, 6.3), v: rnd(0.04, 0.1) }));
+  const SWARM = [];
+  const GHOSTS = Array.from({ length: 3 }, (_, i) => ({ x: rnd(0, 1), y: rnd(0.35, 0.6), v: rnd(0.03, 0.06) * (i % 2 ? -1 : 1), ph: rnd(0, 6.3), boo: 0 }));
+  const CLOUDS = Array.from({ length: 4 }, () => ({ x: rnd(0, 1), y: rnd(0.12, 0.38), w: rnd(0.18, 0.32), v: rnd(0.008, 0.02) }));
+  const EYES = Array.from({ length: 6 }, () => ({ x: rnd(0.05, 0.95), y: rnd(0.74, 0.82), open: 0, next: rnd(0.5, 4), hue: Math.random() < 0.5 ? 50 : 100 }));
+  const PUMP = [0, 0, 0], HOP = [0, 0, 0], VHOP = [0, 0, 0];
+  let pumpTurn = 0, ghostTurn = 0, bolt = null, boltA = 0, lastBolt = -10, toxic = 0;
+  // two dead trees, branches made once (unit coordinates; y grows upwards)
+  function makeTree(seed) {
+    let s = seed;
+    const r = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
+    const segs = [];
+    (function grow(x, y, a, len, w, depth) {
+      const x2 = x + Math.cos(a) * len, y2 = y + Math.sin(a) * len;
+      segs.push([x, y, x2, y2, w, depth]);
+      if (depth >= 5) return;
+      const n = depth < 2 ? 2 : 2 + (r() < 0.4 ? 1 : 0);
+      for (let i = 0; i < n; i++) grow(x2, y2, a + (r() - 0.5) * 1.3 + (i - (n - 1) / 2) * 0.5, len * (0.62 + r() * 0.15), w * 0.62, depth + 1);
+    })(0, 0, Math.PI / 2 + (r() - 0.5) * 0.2, 0.28, 0.035, 0);
+    return segs;
+  }
+  const TREES = [makeTree(7), makeTree(31)];
+
+  function batShape(x, y, w, f) {
+    const h = w * (0.15 + 0.55 * Math.abs(f));
+    ctx.beginPath();
+    for (const d of [-1, 1]) {
+      ctx.moveTo(x, y);
+      ctx.quadraticCurveTo(x + d * w * 0.5, y - h * (f > 0 ? 1 : -0.6), x + d * w, y - h * 0.3);
+      ctx.quadraticCurveTo(x + d * w * 0.75, y + w * 0.1, x + d * w * 0.5, y + w * 0.05);
+      ctx.quadraticCurveTo(x + d * w * 0.3, y + w * 0.22, x, y + w * 0.08);
+    }
+    ctx.fill();
+    ctx.beginPath(); ctx.ellipse(x, y + w * 0.06, w * 0.12, w * 0.16, 0, 0, 6.283); ctx.fill();
+  }
+  function ghostShape(x, y, s, t) {
+    ctx.beginPath();
+    ctx.moveTo(x - s, y + s * 0.9);
+    ctx.lineTo(x - s, y);
+    ctx.arc(x, y, s, Math.PI, 0);
+    ctx.lineTo(x + s, y + s * 0.9);
+    for (let i = 0; i < 4; i++) { // wavy hem
+      const x1 = x + s - (i + 0.5) * s / 2, x2 = x + s - (i + 1) * s / 2;
+      ctx.quadraticCurveTo(x1, y + s * (0.9 + (i % 2 ? -0.25 : 0.25) * Math.sin(t * 4 + i)), x2, y + s * 0.9);
+    }
+    ctx.closePath();
+  }
+
   function sceneHalloween(dt) {
-    const m = Math.min(W, H);
+    const m = Math.min(W, H), now = S.t;
+    // big kick → lightning (rate-limited, soft, and turns the pumpkins green for a moment)
+    if (S.beatFlag && S.bass > 0.82 && now - lastBolt > 6 && !REDUCE) {
+      lastBolt = now; boltA = 1; toxic = 1;
+      const pts = []; let x = rnd(0.15, 0.85) * W, y = 0;
+      while (y < H * 0.7) { pts.push([x, y]); x += rnd(-0.05, 0.05) * W; y += rnd(0.04, 0.09) * H; }
+      bolt = pts;
+    }
+    boltA *= Math.exp(-dt * 7); toxic *= Math.exp(-dt * 1.5);
+
     over(() => {
       const sky = ctx.createLinearGradient(0, 0, 0, H);
       sky.addColorStop(0, 'rgb(14,6,28)'); sky.addColorStop(0.65, 'rgb(46,14,52)'); sky.addColorStop(1, 'rgb(92,34,10)');
       ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+      if (boltA > 0.02) { ctx.fillStyle = `rgba(170,150,255,${0.22 * boltA})`; ctx.fillRect(0, 0, W, H); }
     });
-    const mx = W * 0.72, my = H * 0.27, mr = m * 0.13;
-    glow(mx, my, mr * (2.6 + 0.8 * S.bass), (a) => `rgba(255,214,150,${a * 0.35})`, 1);
+
+    // moon, breathing with the bass
+    const mx = W * 0.7, my = H * 0.25, mr = m * 0.13 * (1 + 0.05 * S.bass);
+    glow(mx, my, mr * (2.6 + 1.2 * S.bass), (a) => `rgba(255,214,150,${a * 0.35})`, 1);
     over(() => {
       ctx.fillStyle = 'rgb(250,232,190)'; ctx.beginPath(); ctx.arc(mx, my, mr, 0, 6.283); ctx.fill();
       ctx.fillStyle = 'rgba(200,170,130,0.35)';
       [[-0.3, -0.2, 0.18], [0.25, 0.1, 0.12], [-0.05, 0.35, 0.1]].forEach(([dx, dy, r]) => { ctx.beginPath(); ctx.arc(mx + dx * mr, my + dy * mr, r * mr, 0, 6.283); ctx.fill(); });
-      // bats
-      ctx.fillStyle = 'rgb(8,4,12)';
-      for (const b of BATS) {
-        b.x += b.v * dt * (1 + 2.5 * S.level); if (b.x > 1.1) { b.x = -0.1; b.y = rnd(0.08, 0.55); }
-        b.ph += dt * (9 + 12 * S.mid);
-        const x = b.x * W, y = b.y * H + Math.sin(b.ph * 0.3) * H * 0.02, w = m * 0.035 * b.s, f = Math.sin(b.ph), h = w * (0.15 + 0.55 * Math.abs(f));
-        ctx.beginPath(); ctx.moveTo(x, y);
-        for (const d of [-1, 1]) {
-          ctx.moveTo(x, y);
-          ctx.quadraticCurveTo(x + d * w * 0.5, y - h * (f > 0 ? 1 : -0.6), x + d * w, y - h * 0.3);
-          ctx.quadraticCurveTo(x + d * w * 0.75, y + w * 0.1, x + d * w * 0.5, y + w * 0.05);
-          ctx.quadraticCurveTo(x + d * w * 0.3, y + w * 0.22, x, y + w * 0.08);
-        }
-        ctx.fill();
-        ctx.beginPath(); ctx.ellipse(x, y + w * 0.06, w * 0.12, w * 0.16, 0, 0, 6.283); ctx.fill();
+      // clouds sliding over the moon
+      for (const c of CLOUDS) {
+        c.x += c.v * dt * (1 + S.level); if (c.x - c.w > 1) c.x = -c.w;
+        ctx.fillStyle = 'rgba(40,20,60,0.75)';
+        for (let k = 0; k < 4; k++) { ctx.beginPath(); ctx.ellipse((c.x + k * c.w * 0.25) * W, c.y * H + Math.sin(k * 2) * m * 0.01, c.w * W * 0.22, m * 0.035, 0, 0, 6.283); ctx.fill(); }
       }
-      // hills
+    });
+
+    // lightning bolt
+    if (bolt && boltA > 0.05) {
+      ctx.strokeStyle = `rgba(220,210,255,${boltA})`; ctx.lineWidth = 3; ctx.lineJoin = 'round';
+      ctx.beginPath(); bolt.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke();
+      ctx.strokeStyle = `rgba(160,120,255,${boltA * 0.4})`; ctx.lineWidth = 10; ctx.stroke();
+    }
+
+    // swarm of bats bursting out of the moon on the beat
+    if (S.beatFlag) for (let i = 0; i < 4; i++) { const a = rnd(0, 6.283); SWARM.push({ x: mx, y: my, vx: Math.cos(a) * m * rnd(0.4, 0.9), vy: Math.sin(a) * m * rnd(0.3, 0.6) - m * 0.1, ph: rnd(0, 6), s: 0.3, life: 1 }); }
+    if (SWARM.length > 60) SWARM.splice(0, SWARM.length - 60);
+
+    over(() => {
+      ctx.fillStyle = 'rgb(8,4,12)';
+      for (let i = SWARM.length - 1; i >= 0; i--) {
+        const b = SWARM[i];
+        b.life -= dt * 0.5; if (b.life <= 0) { SWARM.splice(i, 1); continue; }
+        b.x += b.vx * dt; b.y += b.vy * dt; b.s = Math.min(1.4, b.s + dt * 1.5); b.ph += dt * 22;
+        batShape(b.x, b.y, m * 0.04 * b.s, Math.sin(b.ph));
+      }
+      for (const b of BATS) {
+        b.x += b.v * dt * (1 + 3 * S.level); if (b.x > 1.1) { b.x = -0.1; b.y = rnd(0.06, 0.55); }
+        b.ph += dt * (10 + 16 * S.mid);
+        batShape(b.x * W, b.y * H + Math.sin(b.ph * 0.25) * H * 0.03, m * 0.045 * b.s, Math.sin(b.ph));
+      }
+
+      // dead trees on both sides, swaying with the music
+      TREES.forEach((segs, ti) => {
+        const bx = ti ? W * 0.94 : W * 0.06, by = H * 0.82, sc = H * 0.9 * (ti ? 0.85 : 1);
+        const sway = Math.sin(now * 0.8 + ti) * 0.02 + S.mid * 0.025 * (ti ? -1 : 1);
+        ctx.strokeStyle = 'rgb(10,5,14)'; ctx.lineCap = 'round';
+        for (const [x1, y1, x2, y2, w, d] of segs) {
+          const k = sway * d;
+          ctx.lineWidth = Math.max(1, w * sc);
+          ctx.beginPath();
+          ctx.moveTo(bx + (x1 + k * y1) * sc * (ti ? -1 : 1), by - y1 * sc);
+          ctx.lineTo(bx + (x2 + k * y2) * sc * (ti ? -1 : 1), by - y2 * sc);
+          ctx.stroke();
+        }
+      });
+
+      // hills and tombstones
       ctx.fillStyle = 'rgb(10,5,14)';
       ctx.beginPath(); ctx.moveTo(0, H);
       for (let x = 0; x <= W; x += W / 40) ctx.lineTo(x, H * 0.8 - Math.sin(x / W * 5.5 + 1) * H * 0.04 - Math.sin(x / W * 13) * H * 0.012);
       ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
-    });
-    // pumpkins: one lights up on each beat, in turn
-    if (S.beatFlag) { PUMP[pumpTurn % 3] = 1; pumpTurn++; }
-    [0.2, 0.5, 0.8].forEach((px, i) => {
-      PUMP[i] *= Math.exp(-dt * 2.5);
-      const lit = 0.25 + 0.75 * Math.max(PUMP[i], S.bass * 0.5);
-      const x = W * px, y = H * 0.86, r = m * (i === 1 ? 0.1 : 0.075);
-      glow(x, y, r * 2.4, (a) => `rgba(255,120,20,${a * 0.4 * lit})`, 1);
-      over(() => {
-        ctx.fillStyle = `hsl(26,90%,${22 + 18 * lit}%)`;
-        for (const k of [-0.55, 0, 0.55]) { ctx.beginPath(); ctx.ellipse(x + k * r, y, r * 0.62, r * 0.78, 0, 0, 6.283); ctx.fill(); }
-        ctx.fillStyle = 'rgb(40,70,20)'; ctx.fillRect(x - r * 0.08, y - r * 0.98, r * 0.16, r * 0.25);
-        ctx.fillStyle = `rgba(255,${200 + 40 * lit},90,${0.35 + 0.65 * lit})`;
-        for (const d of [-1, 1]) { ctx.beginPath(); ctx.moveTo(x + d * r * 0.42, y - r * 0.12); ctx.lineTo(x + d * r * 0.18, y - r * 0.12); ctx.lineTo(x + d * r * 0.3, y - r * 0.42); ctx.closePath(); ctx.fill(); }
-        ctx.beginPath(); ctx.moveTo(x - r * 0.55, y + r * 0.15);
-        for (let k = 0; k <= 6; k++) ctx.lineTo(x - r * 0.55 + k * r * 0.183, y + r * (k % 2 ? 0.28 : 0.42));
-        ctx.lineTo(x + r * 0.55, y + r * 0.15); ctx.quadraticCurveTo(x, y + r * 0.62, x - r * 0.55, y + r * 0.15); ctx.fill();
+      [[0.33, 0.045, 0.06, -0.06], [0.39, 0.035, 0.045, 0.08], [0.63, 0.04, 0.055, 0.04], [0.68, 0.03, 0.04, -0.1]].forEach(([tx, tw, th, rot]) => {
+        ctx.save(); ctx.translate(tx * W, H * 0.81); ctx.rotate(rot);
+        ctx.fillStyle = 'rgb(28,22,38)';
+        ctx.beginPath(); ctx.moveTo(-tw * m, 0); ctx.lineTo(-tw * m, -th * m); ctx.arc(0, -th * m, tw * m, Math.PI, 0); ctx.lineTo(tw * m, 0); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = 'rgb(45,38,58)'; ctx.fillRect(-tw * m * 0.08, -th * m * 1.3, tw * m * 0.16, th * m * 0.7); ctx.fillRect(-tw * m * 0.4, -th * m * 1.05, tw * m * 0.8, tw * m * 0.16);
+        ctx.restore();
       });
     });
-    // ground fog
+
+    // eyes blinking in the dark
+    for (const e of EYES) {
+      e.next -= dt;
+      if (e.next <= 0) { e.open = e.open > 0.5 ? 0 : 1; e.next = e.open ? rnd(0.8, 2.5) : rnd(1, 5); if (!e.open) { e.x = rnd(0.05, 0.95); } }
+      const a = e.open * (0.5 + 0.5 * S.high);
+      if (a < 0.05) continue;
+      for (const d of [-1, 1]) {
+        ctx.fillStyle = `hsla(${e.hue},100%,60%,${a})`;
+        ctx.beginPath(); ctx.ellipse(e.x * W + d * m * 0.012, e.y * H, m * 0.007, m * 0.004 * (0.3 + 0.7 * e.open), 0, 0, 6.283); ctx.fill();
+      }
+    }
+
+    // ghosts: drifting, see-through; on the beat one of them swoops towards the viewer
+    if (S.beatFlag && S.bass > 0.6) { GHOSTS[ghostTurn++ % GHOSTS.length].boo = 1; }
+    for (const g of GHOSTS) {
+      g.x += g.v * dt * (1 + S.level); g.ph += dt * 2;
+      if (g.x > 1.15) g.x = -0.15; if (g.x < -0.15) g.x = 1.15;
+      g.boo *= Math.exp(-dt * 2.2);
+      const s = m * 0.07 * (1 + 0.9 * g.boo), x = g.x * W, y = g.y * H + Math.sin(g.ph) * m * 0.04 - g.boo * m * 0.05;
+      const a = 0.35 + 0.25 * S.mid + 0.4 * g.boo;
+      glow(x, y, s * 2.2, (k) => `rgba(200,220,255,${k * 0.25 * a})`, 1);
+      over(() => {
+        ctx.fillStyle = `rgba(235,240,255,${a})`; ghostShape(x, y, s, now + g.ph); ctx.fill();
+        ctx.fillStyle = `rgba(20,10,30,${Math.min(1, a + 0.3)})`;
+        for (const d of [-1, 1]) { ctx.beginPath(); ctx.ellipse(x + d * s * 0.32, y - s * 0.1, s * 0.12, s * 0.18 * (1 + g.boo * 0.4), 0, 0, 6.283); ctx.fill(); }
+        ctx.beginPath(); ctx.ellipse(x, y + s * 0.3, s * 0.12 * (1 + g.boo), s * 0.08 * (1 + 2 * g.boo), 0, 0, 6.283); ctx.fill();
+      });
+    }
+
+    // spider riding the bass on its thread
+    const sx = W * 0.2, sy = H * (0.12 + 0.18 * S.bass + 0.03 * Math.sin(now * 1.5));
+    over(() => {
+      ctx.strokeStyle = 'rgba(220,220,230,0.5)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, sy); ctx.stroke();
+      ctx.fillStyle = 'rgb(12,6,16)'; ctx.strokeStyle = 'rgb(12,6,16)'; ctx.lineWidth = 2;
+      const r = m * 0.022;
+      for (let k = 0; k < 4; k++) for (const d of [-1, 1]) {
+        const wig = Math.sin(now * 10 + k) * 0.15;
+        ctx.beginPath(); ctx.moveTo(sx, sy);
+        ctx.quadraticCurveTo(sx + d * r * 1.6, sy - r * (0.9 - k * 0.5 + wig), sx + d * r * 2.2, sy + r * (k * 0.5 - 0.2));
+        ctx.stroke();
+      }
+      ctx.beginPath(); ctx.ellipse(sx, sy, r * 0.8, r, 0, 0, 6.283); ctx.fill();
+      ctx.fillStyle = 'rgb(255,60,60)'; for (const d of [-1, 1]) { ctx.beginPath(); ctx.arc(sx + d * r * 0.3, sy + r * 0.45, r * 0.12, 0, 6.283); ctx.fill(); }
+    });
+
+    // pumpkins: they hop on the beat in turn, candles flicker, faces go green after lightning
+    if (S.beatFlag) { const i = pumpTurn++ % 3; PUMP[i] = 1; VHOP[i] = m * (0.5 + 0.4 * S.bass); }
+    [0.2, 0.5, 0.8].forEach((px, i) => {
+      PUMP[i] *= Math.exp(-dt * 2.5);
+      VHOP[i] -= m * 3 * dt; HOP[i] = Math.max(0, HOP[i] + VHOP[i] * dt); if (HOP[i] === 0) VHOP[i] = Math.max(0, VHOP[i]);
+      const flick = 0.85 + 0.15 * Math.sin(now * 23 + i * 5) * Math.sin(now * 37 + i);
+      const lit = (0.3 + 0.7 * Math.max(PUMP[i], S.bass * 0.6)) * flick;
+      const x = W * px, r = m * (i === 1 ? 0.1 : 0.078), y = H * 0.86 - HOP[i];
+      const sq = 1 + Math.min(0.15, VHOP[i] / m * 0.1);           // stretch while jumping
+      const face = toxic > 0.1 ? [120, 255, 90] : [255, 200 + 40 * lit, 90];
+      glow(x, y, r * 2.6, (a) => (toxic > 0.1 ? `rgba(80,255,80,${a * 0.4 * lit})` : `rgba(255,120,20,${a * 0.45 * lit})`), 1);
+      over(() => {
+        ctx.save(); ctx.translate(x, y); ctx.scale(1 / sq, sq);
+        ctx.fillStyle = `hsl(26,90%,${20 + 20 * lit}%)`;
+        for (const k of [-0.55, 0, 0.55]) { ctx.beginPath(); ctx.ellipse(k * r, 0, r * 0.62, r * 0.78, 0, 0, 6.283); ctx.fill(); }
+        ctx.fillStyle = 'rgb(40,70,20)'; ctx.fillRect(-r * 0.08, -r * 0.98, r * 0.16, r * 0.25);
+        ctx.fillStyle = `rgba(${face[0]},${face[1] | 0},${face[2]},${0.35 + 0.65 * lit})`;
+        for (const d of [-1, 1]) { ctx.beginPath(); ctx.moveTo(d * r * 0.42, -r * 0.12); ctx.lineTo(d * r * 0.18, -r * 0.12); ctx.lineTo(d * r * 0.3, -r * 0.42); ctx.closePath(); ctx.fill(); }
+        ctx.beginPath(); ctx.moveTo(-r * 0.55, r * 0.15);
+        for (let k = 0; k <= 6; k++) ctx.lineTo(-r * 0.55 + k * r * 0.183, r * (k % 2 ? 0.28 : 0.42));
+        ctx.lineTo(r * 0.55, r * 0.15); ctx.quadraticCurveTo(0, r * 0.62, -r * 0.55, r * 0.15); ctx.fill();
+        ctx.restore();
+      });
+    });
+
+    // ground fog, faster when the music is loud
     for (let l = 0; l < 3; l++) {
-      ctx.fillStyle = `rgba(150,90,200,${0.05 + 0.04 * S.mid})`;
+      ctx.fillStyle = `rgba(150,90,200,${0.05 + 0.05 * S.mid})`;
       ctx.beginPath(); ctx.moveTo(0, H);
-      for (let x = 0; x <= W; x += W / 30) ctx.lineTo(x, H * (0.86 + l * 0.04) + Math.sin(x / W * 6 + S.t * (0.3 + l * 0.15) + l) * H * 0.025);
+      for (let x = 0; x <= W; x += W / 30) ctx.lineTo(x, H * (0.86 + l * 0.04) + Math.sin(x / W * 6 + now * (0.3 + l * 0.15) * (1 + S.level)) * H * 0.025);
       ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
     }
   }
