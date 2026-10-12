@@ -1374,6 +1374,300 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     }
   }
 
+  /* ---------- holiday scenes: each one has its own fixed colours (not the palette) ---------- */
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const over = (fn) => { const g = ctx.globalCompositeOperation; ctx.globalCompositeOperation = 'source-over'; fn(); ctx.globalCompositeOperation = g; };
+  function heartPath(x, y, s) { // y is the heart's centre, s its half-width
+    ctx.beginPath();
+    ctx.moveTo(x, y + s * 0.9);
+    ctx.bezierCurveTo(x - s * 1.25, y + s * 0.05, x - s * 0.95, y - s * 0.95, x, y - s * 0.4);
+    ctx.bezierCurveTo(x + s * 0.95, y - s * 0.95, x + s * 1.25, y + s * 0.05, x, y + s * 0.9);
+    ctx.closePath();
+  }
+  function starPath(x, y, r, rot) {
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const a = rot - Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r;
+      i ? ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr) : ctx.moveTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+    }
+    ctx.closePath();
+  }
+  function glow(x, y, r, color, a) {
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, color(a)); g.addColorStop(1, color(0));
+    ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+
+  // Halloween: full moon, bats crossing it, pumpkins whose faces light up on the beat, ground fog
+  const BATS = Array.from({ length: 16 }, () => ({ x: Math.random(), y: rnd(0.08, 0.55), s: rnd(0.6, 1.4), ph: rnd(0, 6.3), v: rnd(0.03, 0.08) }));
+  const PUMP = [0, 0, 0];
+  let pumpTurn = 0;
+  function sceneHalloween(dt) {
+    const m = Math.min(W, H);
+    over(() => {
+      const sky = ctx.createLinearGradient(0, 0, 0, H);
+      sky.addColorStop(0, 'rgb(14,6,28)'); sky.addColorStop(0.65, 'rgb(46,14,52)'); sky.addColorStop(1, 'rgb(92,34,10)');
+      ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+    });
+    const mx = W * 0.72, my = H * 0.27, mr = m * 0.13;
+    glow(mx, my, mr * (2.6 + 0.8 * S.bass), (a) => `rgba(255,214,150,${a * 0.35})`, 1);
+    over(() => {
+      ctx.fillStyle = 'rgb(250,232,190)'; ctx.beginPath(); ctx.arc(mx, my, mr, 0, 6.283); ctx.fill();
+      ctx.fillStyle = 'rgba(200,170,130,0.35)';
+      [[-0.3, -0.2, 0.18], [0.25, 0.1, 0.12], [-0.05, 0.35, 0.1]].forEach(([dx, dy, r]) => { ctx.beginPath(); ctx.arc(mx + dx * mr, my + dy * mr, r * mr, 0, 6.283); ctx.fill(); });
+      // bats
+      ctx.fillStyle = 'rgb(8,4,12)';
+      for (const b of BATS) {
+        b.x += b.v * dt * (1 + 2.5 * S.level); if (b.x > 1.1) { b.x = -0.1; b.y = rnd(0.08, 0.55); }
+        b.ph += dt * (9 + 12 * S.mid);
+        const x = b.x * W, y = b.y * H + Math.sin(b.ph * 0.3) * H * 0.02, w = m * 0.035 * b.s, f = Math.sin(b.ph), h = w * (0.15 + 0.55 * Math.abs(f));
+        ctx.beginPath(); ctx.moveTo(x, y);
+        for (const d of [-1, 1]) {
+          ctx.moveTo(x, y);
+          ctx.quadraticCurveTo(x + d * w * 0.5, y - h * (f > 0 ? 1 : -0.6), x + d * w, y - h * 0.3);
+          ctx.quadraticCurveTo(x + d * w * 0.75, y + w * 0.1, x + d * w * 0.5, y + w * 0.05);
+          ctx.quadraticCurveTo(x + d * w * 0.3, y + w * 0.22, x, y + w * 0.08);
+        }
+        ctx.fill();
+        ctx.beginPath(); ctx.ellipse(x, y + w * 0.06, w * 0.12, w * 0.16, 0, 0, 6.283); ctx.fill();
+      }
+      // hills
+      ctx.fillStyle = 'rgb(10,5,14)';
+      ctx.beginPath(); ctx.moveTo(0, H);
+      for (let x = 0; x <= W; x += W / 40) ctx.lineTo(x, H * 0.8 - Math.sin(x / W * 5.5 + 1) * H * 0.04 - Math.sin(x / W * 13) * H * 0.012);
+      ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
+    });
+    // pumpkins: one lights up on each beat, in turn
+    if (S.beatFlag) { PUMP[pumpTurn % 3] = 1; pumpTurn++; }
+    [0.2, 0.5, 0.8].forEach((px, i) => {
+      PUMP[i] *= Math.exp(-dt * 2.5);
+      const lit = 0.25 + 0.75 * Math.max(PUMP[i], S.bass * 0.5);
+      const x = W * px, y = H * 0.86, r = m * (i === 1 ? 0.1 : 0.075);
+      glow(x, y, r * 2.4, (a) => `rgba(255,120,20,${a * 0.4 * lit})`, 1);
+      over(() => {
+        ctx.fillStyle = `hsl(26,90%,${22 + 18 * lit}%)`;
+        for (const k of [-0.55, 0, 0.55]) { ctx.beginPath(); ctx.ellipse(x + k * r, y, r * 0.62, r * 0.78, 0, 0, 6.283); ctx.fill(); }
+        ctx.fillStyle = 'rgb(40,70,20)'; ctx.fillRect(x - r * 0.08, y - r * 0.98, r * 0.16, r * 0.25);
+        ctx.fillStyle = `rgba(255,${200 + 40 * lit},90,${0.35 + 0.65 * lit})`;
+        for (const d of [-1, 1]) { ctx.beginPath(); ctx.moveTo(x + d * r * 0.42, y - r * 0.12); ctx.lineTo(x + d * r * 0.18, y - r * 0.12); ctx.lineTo(x + d * r * 0.3, y - r * 0.42); ctx.closePath(); ctx.fill(); }
+        ctx.beginPath(); ctx.moveTo(x - r * 0.55, y + r * 0.15);
+        for (let k = 0; k <= 6; k++) ctx.lineTo(x - r * 0.55 + k * r * 0.183, y + r * (k % 2 ? 0.28 : 0.42));
+        ctx.lineTo(x + r * 0.55, y + r * 0.15); ctx.quadraticCurveTo(x, y + r * 0.62, x - r * 0.55, y + r * 0.15); ctx.fill();
+      });
+    });
+    // ground fog
+    for (let l = 0; l < 3; l++) {
+      ctx.fillStyle = `rgba(150,90,200,${0.05 + 0.04 * S.mid})`;
+      ctx.beginPath(); ctx.moveTo(0, H);
+      for (let x = 0; x <= W; x += W / 30) ctx.lineTo(x, H * (0.86 + l * 0.04) + Math.sin(x / W * 6 + S.t * (0.3 + l * 0.15) + l) * H * 0.025);
+      ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
+    }
+  }
+
+  // Christmas: snowfall, a garland of bulbs chasing on the beat, a tree of lights and a star that pulses with the bass
+  const SNOW = Array.from({ length: 160 }, () => ({ x: Math.random(), y: Math.random(), r: rnd(0.6, 2.6), v: rnd(0.02, 0.06), ph: rnd(0, 6.3) }));
+  const XC = ['255,60,60', '60,220,110', '255,200,60', '90,160,255'];
+  let xStep = 0;
+  function sceneXmas(dt) {
+    const m = Math.min(W, H);
+    if (S.beatFlag) xStep++;
+    over(() => {
+      const sky = ctx.createLinearGradient(0, 0, 0, H);
+      sky.addColorStop(0, 'rgb(6,10,30)'); sky.addColorStop(1, 'rgb(16,30,60)');
+      ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = 'rgb(225,232,245)'; // snowy ground
+      ctx.beginPath(); ctx.moveTo(0, H);
+      for (let x = 0; x <= W; x += W / 30) ctx.lineTo(x, H * 0.9 - Math.sin(x / W * 4 + 0.5) * H * 0.02);
+      ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
+      // tree
+      ctx.fillStyle = 'rgb(10,48,28)';
+      ctx.beginPath(); ctx.moveTo(W / 2, H * 0.24); ctx.lineTo(W / 2 + m * 0.3, H * 0.84); ctx.lineTo(W / 2 - m * 0.3, H * 0.84); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgb(60,34,18)'; ctx.fillRect(W / 2 - m * 0.035, H * 0.84, m * 0.07, H * 0.06);
+    });
+    // tree bulbs, twinkling with the spectrum
+    let k = 0;
+    for (let row = 1; row <= 7; row++) {
+      const t = row / 7.6, y = H * 0.24 + (H * 0.6) * t, half = m * 0.3 * t * 0.85, n = row + 1;
+      for (let i = 0; i < n; i++) {
+        const x = W / 2 - half + (n === 1 ? half : (2 * half * i) / (n - 1));
+        const v = 0.3 + 0.7 * S.spec[(k * 7) % 40], c = XC[(k + xStep) % 4];
+        glow(x, y, m * 0.03 * (0.6 + v), (a) => `rgba(${c},${a})`, 0.8 * v);
+        k++;
+      }
+    }
+    // star
+    const sr = m * 0.05 * (1 + 0.25 * S.bass + 0.15 * S.beat);
+    glow(W / 2, H * 0.23, sr * 3, (a) => `rgba(255,220,120,${a * 0.5})`, 1);
+    over(() => { ctx.fillStyle = 'rgb(255,214,90)'; starPath(W / 2, H * 0.23, sr, S.t * 0.2); ctx.fill(); });
+    // garland across the top
+    const nb = 18;
+    over(() => {
+      ctx.strokeStyle = 'rgb(30,40,30)'; ctx.lineWidth = 2; ctx.beginPath();
+      for (let i = 0; i <= 40; i++) { const u = i / 40; const y = H * 0.05 + Math.sin(Math.PI * ((u * 3) % 1)) * H * 0.05; i ? ctx.lineTo(u * W, y) : ctx.moveTo(0, y); }
+      ctx.stroke();
+    });
+    for (let i = 0; i < nb; i++) {
+      const u = (i + 0.5) / nb, x = u * W, y = H * 0.05 + Math.sin(Math.PI * ((u * 3) % 1)) * H * 0.05 + m * 0.012;
+      const on = (i + xStep) % 3 === 0, c = XC[i % 4], v = on ? 0.6 + 0.4 * S.bass : 0.2;
+      glow(x, y, m * 0.035 * (0.5 + v), (a) => `rgba(${c},${a})`, v);
+    }
+    // snow
+    for (const f of SNOW) {
+      f.y += f.v * dt * (1 + 1.5 * S.level); f.ph += dt;
+      if (f.y > 1.02) { f.y = -0.02; f.x = Math.random(); }
+      ctx.fillStyle = `rgba(255,255,255,${0.5 + 0.4 * (f.r / 2.6)})`;
+      ctx.beginPath(); ctx.arc((f.x + Math.sin(f.ph) * 0.01) * W, f.y * H, f.r * (m / 500), 0, 6.283); ctx.fill();
+    }
+  }
+
+  // New Year: rockets launched on the beat burst into gold and silver, champagne bubbles rise from below
+  const ROCK = [], FW = [], BUB = Array.from({ length: 60 }, () => ({ x: Math.random(), y: Math.random(), r: rnd(1, 4), v: rnd(0.05, 0.14) }));
+  let fwClock = 0;
+  function sceneNewYear(dt) {
+    const m = Math.min(W, H);
+    fwClock += dt;
+    if ((S.beatFlag && ROCK.length < 4) || fwClock > 2.2) {
+      fwClock = 0;
+      ROCK.push({ x: rnd(0.15, 0.85) * W, y: H, vy: -H * rnd(0.75, 1.0), apex: H * rnd(0.15, 0.4), gold: Math.random() < 0.6 });
+    }
+    for (let i = ROCK.length - 1; i >= 0; i--) {
+      const r = ROCK[i];
+      r.y += r.vy * dt;
+      ctx.fillStyle = 'rgba(255,230,180,0.9)'; ctx.beginPath(); ctx.arc(r.x, r.y, 2.2, 0, 6.283); ctx.fill();
+      if (r.y <= r.apex) {
+        ROCK.splice(i, 1);
+        const n = 90 + Math.floor(70 * S.bass);
+        for (let k = 0; k < n; k++) {
+          const a = Math.random() * 6.283, v = m * rnd(0.15, 0.55) * (0.8 + 0.6 * S.level);
+          FW.push({ x: r.x, y: r.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, gold: r.gold, tw: Math.random() * 6 });
+        }
+        if (FW.length > 1400) FW.splice(0, FW.length - 1400);
+      }
+    }
+    for (let i = FW.length - 1; i >= 0; i--) {
+      const p = FW[i];
+      p.life -= dt * 0.55;
+      if (p.life <= 0) { FW.splice(i, 1); continue; }
+      p.vy += m * 0.25 * dt; p.vx *= 1 - dt * 1.2; p.vy *= 1 - dt * 1.2;
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      const tw = 0.6 + 0.4 * Math.sin(S.t * 20 + p.tw);
+      ctx.fillStyle = p.gold ? `rgba(255,${190 + 40 * p.life},90,${p.life * tw})` : `rgba(220,230,255,${p.life * tw})`;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 1.2 + 1.6 * p.life, 0, 6.283); ctx.fill();
+    }
+    for (const b of BUB) {
+      b.y -= b.v * dt * (1 + 2 * S.level);
+      if (b.y < -0.05) { b.y = 1.05; b.x = Math.random(); }
+      ctx.strokeStyle = 'rgba(255,215,140,0.35)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(b.x * W + Math.sin(b.y * 20) * 4, b.y * H, b.r * (m / 600), 0, 6.283); ctx.stroke();
+    }
+  }
+
+  // Easter: pastel sky, eggs that hop on the beat, petals drifting down
+  const EGGS = Array.from({ length: 5 }, (_, i) => ({ x: (i + 0.5) / 5, h: 0, vy: 0, rot: 0, hue: [330, 50, 190, 280, 110][i], pat: i % 3 }));
+  const PETALS = Array.from({ length: 36 }, () => ({ x: Math.random(), y: Math.random(), r: rnd(0.6, 1.4), v: rnd(0.03, 0.07), a: rnd(0, 6.3), hue: [330, 50, 280, 0][Math.floor(Math.random() * 4)] }));
+  let eggTurn = 0;
+  function sceneEaster(dt) {
+    const m = Math.min(W, H), lv = 0.85 + 0.15 * S.level;
+    over(() => {
+      const sky = ctx.createLinearGradient(0, 0, 0, H);
+      sky.addColorStop(0, `hsl(275,60%,${70 * lv}%)`); sky.addColorStop(1, `hsl(160,55%,${78 * lv}%)`);
+      ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = 'hsl(110,45%,55%)';
+      ctx.beginPath(); ctx.moveTo(0, H);
+      for (let x = 0; x <= W; x += W / 30) ctx.lineTo(x, H * 0.78 - Math.sin(x / W * 4) * H * 0.03);
+      ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
+    });
+    if (S.beatFlag) { const e = EGGS[eggTurn++ % EGGS.length]; if (e.h <= 0) e.vy = H * (0.45 + 0.35 * S.bass); }
+    for (const e of EGGS) {
+      e.vy -= H * 1.6 * dt; e.h = Math.max(0, e.h + e.vy * dt); if (e.h === 0) e.vy = Math.max(0, e.vy);
+      e.rot = Math.sin(S.t * 2 + e.x * 9) * 0.15 * (0.3 + S.mid);
+      const x = e.x * W, y = H * 0.84 - e.h, rx = m * 0.055, ry = m * 0.075;
+      over(() => {
+        ctx.save(); ctx.translate(x, y); ctx.rotate(e.rot);
+        ctx.fillStyle = `hsl(${e.hue},70%,78%)`; ctx.beginPath(); ctx.ellipse(0, 0, rx, ry, 0, 0, 6.283); ctx.fill();
+        ctx.save(); ctx.clip();
+        ctx.fillStyle = `hsl(${(e.hue + 40) % 360},75%,62%)`; ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = ry * 0.12;
+        if (e.pat === 0) { for (const k of [-0.35, 0.15]) ctx.fillRect(-rx, k * ry, rx * 2, ry * 0.18); }
+        else if (e.pat === 1) { ctx.beginPath(); for (let i = 0; i <= 8; i++) ctx.lineTo(-rx + i * rx / 4, (i % 2 ? -0.1 : 0.1) * ry); ctx.stroke(); }
+        else { for (let i = 0; i < 7; i++) { ctx.beginPath(); ctx.arc(((i * 37) % 10 / 10 - 0.5) * rx * 1.6, ((i * 53) % 10 / 10 - 0.5) * ry * 1.6, rx * 0.12, 0, 6.283); ctx.fill(); } }
+        ctx.restore(); ctx.restore();
+      });
+    }
+    for (const p of PETALS) {
+      p.y += p.v * dt * (1 + S.level); p.a += dt * (1 + S.mid * 2);
+      if (p.y > 1.05) { p.y = -0.05; p.x = Math.random(); }
+      const x = (p.x + Math.sin(p.a) * 0.02) * W, y = p.y * H, s = m * 0.012 * p.r;
+      over(() => {
+        ctx.fillStyle = `hsla(${p.hue},80%,85%,0.9)`;
+        for (let k = 0; k < 5; k++) { const a = p.a + k * 1.2566; ctx.beginPath(); ctx.arc(x + Math.cos(a) * s, y + Math.sin(a) * s, s * 0.7, 0, 6.283); ctx.fill(); }
+        ctx.fillStyle = 'hsl(48,95%,60%)'; ctx.beginPath(); ctx.arc(x, y, s * 0.55, 0, 6.283); ctx.fill();
+      });
+    }
+  }
+
+  // Valentine's Day: a big heart beating with the bass, small hearts floating up
+  const HEARTS = Array.from({ length: 30 }, () => ({ x: Math.random(), y: Math.random(), s: rnd(0.5, 1.3), v: rnd(0.04, 0.1), ph: rnd(0, 6.3), l: rnd(55, 75) }));
+  function sceneValentine(dt) {
+    const m = Math.min(W, H);
+    over(() => {
+      const bg = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.7);
+      bg.addColorStop(0, 'rgb(70,8,30)'); bg.addColorStop(1, 'rgb(20,2,10)');
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    });
+    for (const h of HEARTS) {
+      h.y -= h.v * dt * (1 + 1.5 * S.level); h.ph += dt * 1.5;
+      if (h.y < -0.08) { h.y = 1.08; h.x = Math.random(); }
+      ctx.fillStyle = `hsla(${345 + h.s * 10},85%,${h.l}%,${0.25 + 0.3 * S.mid})`;
+      heartPath((h.x + Math.sin(h.ph) * 0.02) * W, h.y * H, m * 0.025 * h.s); ctx.fill();
+    }
+    const beat = 1 + 0.14 * S.bass + 0.1 * S.beat, s = m * 0.2 * beat;
+    glow(W / 2, H * 0.5, s * 2.4, (a) => `rgba(255,60,110,${a * 0.45})`, 0.6 + 0.4 * S.bass);
+    over(() => {
+      const g = ctx.createLinearGradient(0, H / 2 - s, 0, H / 2 + s);
+      g.addColorStop(0, 'rgb(255,90,130)'); g.addColorStop(1, 'rgb(200,10,60)');
+      ctx.fillStyle = g; heartPath(W / 2, H * 0.5, s); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.beginPath(); ctx.ellipse(W / 2 - s * 0.45, H * 0.5 - s * 0.35, s * 0.18, s * 0.1, -0.6, 0, 6.283); ctx.fill();
+    });
+  }
+
+  // Birthday: balloons rising, a confetti burst on every beat
+  const BALL = Array.from({ length: 12 }, () => ({ x: Math.random(), y: rnd(0.2, 1.2), v: rnd(0.04, 0.08), hue: Math.floor(rnd(0, 360)), ph: rnd(0, 6.3) }));
+  const CONF = [];
+  function sceneBirthday(dt) {
+    const m = Math.min(W, H);
+    over(() => { ctx.fillStyle = 'rgb(16,10,30)'; ctx.fillRect(0, 0, W, H); });
+    if (S.beatFlag) {
+      const x = rnd(0.2, 0.8) * W, n = 50 + Math.floor(50 * S.bass);
+      for (let i = 0; i < n; i++) CONF.push({ x, y: H * 0.15, vx: rnd(-1, 1) * m * 0.6, vy: rnd(-0.8, 0.1) * m * 0.6, r: rnd(0, 6.3), vr: rnd(-8, 8), hue: Math.floor(rnd(0, 360)), life: 1 });
+      if (CONF.length > 900) CONF.splice(0, CONF.length - 900);
+    }
+    for (const b of BALL) {
+      b.y -= b.v * dt * (1 + S.level); b.ph += dt;
+      if (b.y < -0.2) { b.y = 1.15; b.x = Math.random(); b.hue = Math.floor(rnd(0, 360)); }
+      const x = (b.x + Math.sin(b.ph) * 0.015) * W, y = b.y * H, r = m * 0.06;
+      over(() => {
+        ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x, y + r * 1.25); ctx.quadraticCurveTo(x + r * 0.3, y + r * 2, x, y + r * 2.8); ctx.stroke();
+        ctx.fillStyle = `hsl(${b.hue},80%,${55 + 10 * S.beat}%)`;
+        ctx.beginPath(); ctx.ellipse(x, y, r, r * 1.2, 0, 0, 6.283); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(x - r * 0.15, y + r * 1.3); ctx.lineTo(x + r * 0.15, y + r * 1.3); ctx.lineTo(x, y + r * 1.15); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.beginPath(); ctx.ellipse(x - r * 0.35, y - r * 0.4, r * 0.18, r * 0.3, -0.5, 0, 6.283); ctx.fill();
+      });
+    }
+    for (let i = CONF.length - 1; i >= 0; i--) {
+      const c = CONF[i];
+      c.life -= dt * 0.35; if (c.life <= 0 || c.y > H + 20) { CONF.splice(i, 1); continue; }
+      c.vy += m * 0.9 * dt; c.vx *= 1 - dt * 1.5; c.vy *= 1 - dt * 1.2;
+      c.x += c.vx * dt; c.y += c.vy * dt; c.r += c.vr * dt;
+      over(() => {
+        ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.r);
+        ctx.fillStyle = `hsla(${c.hue},90%,60%,${Math.min(1, c.life * 2)})`;
+        ctx.fillRect(-m * 0.008, -m * 0.004 * Math.abs(Math.cos(c.r * 2)) - 1, m * 0.016, m * 0.008 * Math.abs(Math.cos(c.r * 2)) + 2);
+        ctx.restore();
+      });
+    }
+  }
+
   // Room light: the whole screen becomes a soft colour wash so the TV lights the room.
   // Brightness follows the music smoothly; beats swell gently, never strobe.
   let ambLevel = 0.3, ambSwell = 0;
@@ -1401,15 +1695,18 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     grid: sceneGrid, sparks: sceneSparks, waves: sceneWaves, kaleido: sceneKaleido,
     scope: sceneScope, analyser: sceneAnalyser, psyche: scenePsyche, plasma: scenePlasma,
     ambiance: sceneAmbiance,
-    disco: sceneDisco, chase: sceneChase, sheet: sceneSheet, floor: sceneFloor, aurora: sceneAurora
+    disco: sceneDisco, chase: sceneChase, sheet: sceneSheet, floor: sceneFloor, aurora: sceneAurora,
+    halloween: sceneHalloween, xmas: sceneXmas, newyear: sceneNewYear, easter: sceneEaster, valentine: sceneValentine, birthday: sceneBirthday
   };
   const TRAIL = {
     beams: 0.42, lasers: 0.24, tunnel: 0.2, bars: 0.38, grid: 0.45, sparks: 0.22, waves: 0.3, kaleido: 0.22,
     scope: 0.25, analyser: 0.4, psyche: 0.03, plasma: 0.5, ambiance: 1,
-    disco: 0.3, chase: 0.45, sheet: 0.35, floor: 0.5, aurora: 0.12
+    disco: 0.3, chase: 0.45, sheet: 0.35, floor: 0.5, aurora: 0.12,
+    halloween: 1, xmas: 1, newyear: 0.18, easter: 1, valentine: 1, birthday: 1
   };
   const ALL = ['beams', 'lasers', 'tunnel', 'bars', 'grid', 'sparks', 'waves', 'kaleido', 'scope', 'analyser', 'psyche', 'plasma',
-    'disco', 'chase', 'sheet', 'floor', 'aurora', 'ambiance', 'milkdrop'];
+    'disco', 'chase', 'sheet', 'floor', 'aurora', 'ambiance', 'milkdrop',
+    'halloween', 'xmas', 'newyear', 'easter', 'valentine', 'birthday'];
 
   /* ---------- MilkDrop (Butterchurn, loaded on first use) ---------- */
   const mdCv = $('mdStage');
@@ -1473,7 +1770,8 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     ['Lumières', [['beams', 'Projecteurs'], ['lasers', 'Lasers'], ['tunnel', 'Tunnel'], ['bars', 'Spectre'], ['grid', 'Grille'], ['sparks', 'Étincelles'], ['waves', 'Ondes'], ['kaleido', 'Kaléido']]],
     ['Club', [['disco', 'Boule à facettes'], ['chase', 'Chenillard'], ['sheet', 'Nappe laser'], ['floor', 'Piste de danse']]],
     ['Rétro', [['scope', 'Oscillo'], ['analyser', 'Analyseur'], ['psyche', 'Psyché'], ['plasma', 'Plasma'], ['milkdrop', 'MilkDrop']]],
-    ['Calme', [['aurora', 'Aurore'], ['ambiance', 'Ambiance']]]
+    ['Calme', [['aurora', 'Aurore'], ['ambiance', 'Ambiance']]],
+    ['Fêtes', [['halloween', 'Halloween'], ['xmas', 'Noël'], ['newyear', 'Nouvel An'], ['easter', 'Pâques'], ['valentine', 'Saint-Valentin'], ['birthday', 'Anniversaire']]]
   ];
   const SCENE_NAMES = {};
   SCENE_GROUPS.forEach(([, items]) => items.forEach(([id, name]) => { SCENE_NAMES[id] = name; }));
