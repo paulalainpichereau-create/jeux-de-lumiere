@@ -12,8 +12,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -37,7 +37,7 @@ jobs:
         run: |
           cd android
           gradle --no-daemon assembleRelease bundleRelease > build.log 2>&1 || true
-          grep -E "^e: |error:|FAILURE|What went wrong|> " build.log | sort -u | head -n 40 | while IFS= read -r line; do echo "::error::$line"; done
+          grep -E "^e: |error:|FAILURE|What went wrong" build.log | sort -u | head -n 40 | while IFS= read -r line; do echo "::error::$line"; done
           tail -n 15 build.log
           grep -q "BUILD SUCCESSFUL" build.log
       - name: Collect

@@ -7,8 +7,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.3"
-    CURRENT_PROJECT_VERSION: "3"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "4"
 targets:
   JeuxDeLumiere:
     type: application
@@ -19,6 +19,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: fr.jeuxdelumiere.app
         INFOPLIST_FILE: App/Info.plist
         TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CAST_APP_ID: CC1AD845   # replaced at build time by the repository variable CAST_APP_ID
     dependencies:
       - target: Broadcast

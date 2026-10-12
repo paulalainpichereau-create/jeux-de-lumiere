@@ -66,7 +66,25 @@ struct BroadcastButton: UIViewRepresentable {
     func updateUIView(_ uiView: RPSystemBroadcastPickerView, context: Context) {}
 }
 
+/// Two tabs: the lights on this iPhone, and Spotify / Deezer captured without the microphone, shown on the TV.
 struct ContentView: View {
+    @State private var tab = 0
+    var body: some View {
+        TabView(selection: $tab) {
+            LightsView()
+                .tabItem { Label("Lumières", systemImage: "sparkles") }
+                .tag(0)
+            SpotifyTVView()
+                .tabItem { Label("Spotify et TV", systemImage: "tv") }
+                .tag(1)
+        }
+        .preferredColorScheme(.dark)
+        .tint(Color(red: 1, green: 0.3, blue: 0.58))
+        .onAppear { Bridge.ensureCode() }
+    }
+}
+
+struct SpotifyTVView: View {
     @ObservedObject private var b = Bridge.shared
     @ObservedObject private var cast = CastLink.shared
     @AppStorage("screenCode") private var screenCode = ""
@@ -85,7 +103,7 @@ struct ContentView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     Text("Jeux de lumière").font(.system(size: 30, weight: .bold))
-                    Text("L’écran de la TV suit la musique de Spotify ou Deezer, sans micro.")
+                    Text("Les lumières suivent la musique de Spotify ou Deezer, sans micro : sur la TV, et aussi dans l’onglet Lumières de ce téléphone.")
                         .foregroundStyle(.secondary)
 
                     step(1, "Touchez l’icône Cast et choisissez votre Chromecast ou Google TV : les lumières s’affichent sur la TV.")
