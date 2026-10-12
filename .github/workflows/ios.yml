@@ -1,4 +1,4 @@
-name: Prototype iPhone
+name: App iPhone
 
 on:
   push:
@@ -40,6 +40,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view prototype-iphone >/dev/null 2>&1 || \
-            gh release create prototype-iphone --title "Prototype iPhone" --prerelease \
-              --notes "Application iPhone de test, non signée : à installer avec Sideloadly ou AltStore (voir ios/INSTALLATION.md)."
+            gh release create prototype-iphone --title "App iPhone" --prerelease \
+              --notes "Application iPhone (version de test), non signée : à installer avec Sideloadly ou AltStore (voir ios/INSTALLATION.md)."
           gh release upload prototype-iphone ios/JeuxDeLumiere-non-signe.ipa --clobber

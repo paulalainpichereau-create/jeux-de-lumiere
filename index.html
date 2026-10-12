@@ -285,7 +285,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
       </div>
 
       <h3>2. Sur le téléphone</h3>
-      <p class="fit">Scannez le QR code avec l’appareil photo, ou tapez le code affiché sur l’écran.</p>
+      <p class="fit">Scannez le QR code avec l’appareil photo, ou tapez le code affiché sur l’écran. Avec l’app iPhone « Jeux de lumière », tapez ce code dans l’app : l’écran suit alors la musique de Spotify, sans micro.</p>
       <div class="fields">
         <label class="field" for="remoteCode"><span>Code de l’écran</span>
           <input id="remoteCode" type="text" maxlength="5" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="K7Q2M">
@@ -479,7 +479,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
   /* ---------- remote control: shared state (the UI is wired up further down) ----------
      The phone ("remote") listens with its mic, sends its analysis ~30 times a second and decides the scenes;
      the device on the TV ("screen") draws from those frames. */
-  const RC = { peer: null, conn: null, role: null, code: '', lastSend: 0, beat: false, applying: false };
+  const RC = { peer: null, conn: null, role: null, code: '', lastSend: 0, beat: false, applying: false, mq: null, iosAt: 0 };
   const REM = { frame: null, at: 0, beat: false };
   function rcSend(msg) { try { if (RC.conn && RC.conn.open) RC.conn.send(msg); } catch (e) {} }
   function remoteTell(msg) { if (RC.role === 'remote' && !RC.applying) rcSend(msg); }
@@ -1971,8 +1971,9 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
   const remoteEl = $('remoteSheet'), remoteStatus = $('remoteStatus'), remoteBadge = $('remoteBadge');
   const RC_ABC = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
   const RC_SRC = MD_LOCAL
-    ? ['vendor/peerjs.min.js', 'vendor/qrcode.js']
-    : ['https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js', 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js'];
+    ? ['vendor/peerjs.min.js', 'vendor/qrcode.js', 'vendor/mqtt.min.js']
+    : ['https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js', 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js',
+       'https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js'];
   let rcLoad = null;
   function loadRemoteLibs() {
     if (!rcLoad) rcLoad = (async () => { for (const s of RC_SRC) await loadScript(s); })().catch((e) => { rcLoad = null; throw e; });
@@ -1992,6 +1993,8 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
   function rcReset() {
     try { if (RC.conn) RC.conn.close(); } catch (e) {}
     try { if (RC.peer) RC.peer.destroy(); } catch (e) {}
+    try { if (RC.mq) RC.mq.end(true); } catch (e) {}
+    RC.mq = null; RC.iosAt = 0;
     const wasScreen = RC.role === 'screen';
     RC.peer = RC.conn = null; RC.role = null; REM.frame = null;
     setBadge(''); $('screenBox').hidden = true; $('bRemoteMic').hidden = true; $('bDisconnect').hidden = true;
@@ -2038,23 +2041,51 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
       }
     } finally { RC.applying = false; }
   }
+  function showScreenCode() {
+    $('screenBox').hidden = false; $('screenCode').textContent = RC.code;
+    $('screenStatus').textContent = 'En attente du téléphone…';
+    const q = qrcode(0, 'M');
+    q.addData(location.origin + location.pathname + '?r=' + RC.code); q.make();
+    $('screenQr').innerHTML = q.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+    setBadge('Écran ' + RC.code);
+    stopSource(); A.mode = 'remote'; A.paused = false; A.label = 'Écran télécommandé · en attente du téléphone'; updateUI();
+  }
+  // The iPhone app can't keep a direct WebRTC link while Spotify is in front (its broadcast extension is
+  // tiny), so it publishes its analysis on a public MQTT relay, on a topic named after this screen's code.
+  // Only sound levels travel there, never the music.
+  const MQ_URL = () => window.JDL_MQTT || 'wss://broker.emqx.io:8084/mqtt';
+  const mqTopic = (code) => 'jeux-de-lumiere/v1/' + code;
+  function iphoneState(on) {
+    $('screenStatus').textContent = on ? 'iPhone connecté : l’écran suit sa musique' : 'iPhone : plus de son reçu. En attente…';
+    A.label = on ? 'Écran · musique de l’iPhone' : 'Écran télécommandé · en attente du téléphone'; updateUI();
+    if (on) note('iPhone connecté : les lumières suivent sa musique.');
+  }
+  function listenIphone(code) {
+    if (!window.mqtt) return;
+    const c = window.mqtt.connect(MQ_URL(), {
+      clientId: 'jdl-ecran-' + newCode().toLowerCase(), clean: true, keepalive: 30, reconnectPeriod: 3000, connectTimeout: 10000
+    });
+    RC.mq = c;
+    c.on('connect', () => c.subscribe(mqTopic(code)));
+    c.on('message', (topic, buf) => {
+      if (RC.mq !== c) return;
+      let m; try { m = JSON.parse(new TextDecoder().decode(buf)); } catch (e) { return; }
+      if (!m || m.t !== 'f') return;
+      if (!RC.iosAt) iphoneState(true);
+      RC.iosAt = performance.now();
+      onRemoteMessage(m);
+    });
+  }
+  setInterval(() => { if (RC.iosAt && performance.now() - RC.iosAt > 3000) { RC.iosAt = 0; iphoneState(false); } }, 1000);
   async function beScreen() {
     rcReset();
     remoteStatus.textContent = 'Préparation…';
     try { await loadRemoteLibs(); } catch (e) { remoteStatus.textContent = 'Chargement impossible. Vérifiez la connexion internet.'; return; }
     RC.role = 'screen'; RC.code = newCode();
+    showScreenCode();
+    listenIphone(RC.code);
+    remoteStatus.textContent = '';
     const peer = new window.Peer(peerId(RC.code), peerOpts()); RC.peer = peer;
-    peer.on('open', () => {
-      if (RC.peer !== peer) return;
-      $('screenBox').hidden = false; $('screenCode').textContent = RC.code;
-      $('screenStatus').textContent = 'En attente du téléphone…';
-      const q = qrcode(0, 'M');
-      q.addData(location.origin + location.pathname + '?r=' + RC.code); q.make();
-      $('screenQr').innerHTML = q.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
-      remoteStatus.textContent = '';
-      setBadge('Écran ' + RC.code);
-      stopSource(); A.mode = 'remote'; A.paused = false; A.label = 'Écran télécommandé · en attente du téléphone'; updateUI();
-    });
     peer.on('connection', (conn) => {
       if (RC.conn && RC.conn !== conn) { try { RC.conn.close(); } catch (e) {} } // one phone at a time; the newest wins
       RC.conn = conn;
@@ -2074,7 +2105,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     peer.on('error', (err) => {
       if (RC.peer !== peer) return;
       if (err && err.type === 'unavailable-id') { beScreen(); return; } // code already taken: draw another one
-      remoteStatus.textContent = peerErrorText(err);
+      remoteStatus.textContent = peerErrorText(err) + ' L’app iPhone peut quand même se connecter avec ce code.';
     });
     peer.on('disconnected', () => { if (RC.peer === peer) { try { peer.reconnect(); } catch (e) {} } }); // keep the code reachable
   }

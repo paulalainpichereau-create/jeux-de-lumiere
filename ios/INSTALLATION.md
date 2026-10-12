@@ -19,10 +19,13 @@ pendant une « Diffusion » d’écran. Il n’est pas sur l’App Store ; on l�
 
 Avec un compte Apple gratuit, l’application doit être réinstallée tous les **7 jours** (même procédure).
 
-## Le test
-1. Dans l’app, toucher le bouton rond, choisir « Jeux de lumière », puis **Commencer la diffusion**.
-2. Ouvrir Spotify (ou Deezer) et lancer une musique, sur le haut-parleur ou une enceinte Bluetooth.
-3. Revenir dans l’app :
-   - « Son reçu : ça marche ! » et des flashs au rythme → la capture fonctionne avec cette app de musique ;
-   - « Diffusion en cours, mais aucun son reçu » → cette app de musique bloque la capture.
-4. Arrêter la diffusion en touchant l’indicateur rouge en haut de l’écran.
+## Utilisation
+1. Sur l’appareil branché à la TV, ouvrir https://paulalainpichereau-create.github.io/jeux-de-lumiere/,
+   toucher **Télécommande › Cet appareil est l’écran** : un code à 5 caractères s’affiche.
+2. Dans l’app iPhone, taper ce code.
+3. Toucher le bouton rond, choisir « Jeux de lumière », puis **Commencer la diffusion**.
+4. Ouvrir Spotify ou Deezer et lancer la musique (haut-parleur ou enceinte Bluetooth).
+   L’écran affiche « iPhone connecté » et les lumières suivent la musique.
+5. Pour arrêter : toucher l’indicateur rouge en haut de l’écran de l’iPhone.
+
+Seuls des niveaux sonores passent par le relais internet (broker.emqx.io), jamais la musique.

@@ -8,38 +8,41 @@ struct JeuxDeLumiereApp: App {
     }
 }
 
-/// Receives the extension's Darwin notifications and publishes them to the UI.
-final class Listener: ObservableObject {
-    static let shared = Listener()
+/// Talks to the broadcast extension through Darwin notifications (see Signal.swift).
+final class Bridge: ObservableObject {
+    static let shared = Bridge()
     @Published var broadcasting = false
-    @Published var level = 0              // 0…9
+    @Published var linked = false        // the extension reached the relay with our code
+    @Published var level = 0             // 0…9
     @Published var beats = 0
-    @Published var lastSignal = Date.distantPast
+    @Published var lastSound = Date.distantPast
+
+    private let signals = SignalListener()
 
     private init() {
-        observe(Signal.started) { $0.broadcasting = true }
-        observe(Signal.stopped) { $0.broadcasting = false; $0.level = 0 }
-        observe(Signal.beat) { $0.beats += 1 }
-        for n in 0...9 { observe(Signal.level(n)) { $0.level = n } }
+        signals.on(Signal.started) { [weak self] in self?.broadcasting = true; self?.sendCode() }
+        signals.on(Signal.codeRequest) { [weak self] in self?.broadcasting = true; self?.sendCode() }
+        signals.on(Signal.stopped) { [weak self] in self?.broadcasting = false; self?.linked = false; self?.level = 0 }
+        signals.on(Signal.linkUp) { [weak self] in self?.linked = true }
+        signals.on(Signal.linkDown) { [weak self] in self?.linked = false }
+        signals.on(Signal.beat) { [weak self] in self?.beats += 1 }
+        for n in 0...9 {
+            signals.on(Signal.level(n)) { [weak self] in
+                self?.broadcasting = true; self?.level = n; self?.lastSound = Date()
+            }
+        }
     }
 
-    private var handlers: [String: (Listener) -> Void] = [:]
+    static func clean(_ raw: String) -> String {
+        String(raw.uppercased().filter { Signal.codeAlphabet.contains($0) }.prefix(Signal.codeLength))
+    }
 
-    private func observe(_ name: String, _ handler: @escaping (Listener) -> Void) {
-        handlers[name] = handler
-        CFNotificationCenterAddObserver(
-            CFNotificationCenterGetDarwinNotifyCenter(), Unmanaged.passUnretained(self).toOpaque(),
-            { _, observer, name, _, _ in
-                guard let observer, let name else { return }
-                let me = Unmanaged<Listener>.fromOpaque(observer).takeUnretainedValue()
-                let key = name.rawValue as String
-                DispatchQueue.main.async {
-                    me.lastSignal = Date()
-                    if key != Signal.stopped { me.broadcasting = true }
-                    me.handlers[key]?(me)
-                }
-            },
-            name as CFString, nil, .deliverImmediately)
+    /// Spells the screen code to the extension, one character per notification, then commits.
+    func sendCode() {
+        let code = Self.clean(UserDefaults.standard.string(forKey: "screenCode") ?? "")
+        guard code.count == Signal.codeLength else { return }
+        for (i, ch) in code.enumerated() { Signal.post(Signal.codeChar(i, ch)) }
+        Signal.post(Signal.codeCommit)
     }
 }
 
@@ -55,66 +58,97 @@ struct BroadcastButton: UIViewRepresentable {
 }
 
 struct ContentView: View {
-    @ObservedObject private var l = Listener.shared
+    @ObservedObject private var b = Bridge.shared
+    @AppStorage("screenCode") private var screenCode = ""
     @State private var flash = 0.0
-    private let tick = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
     @State private var now = Date()
+    private let tick = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
-    private var receiving: Bool { now.timeIntervalSince(l.lastSignal) < 2 && l.level > 0 }
+    private var codeOK: Bool { screenCode.count == Signal.codeLength }
+    private var hearing: Bool { now.timeIntervalSince(b.lastSound) < 2 && b.level > 0 }
 
     var body: some View {
         ZStack {
             Color(red: 0.03, green: 0.02, blue: 0.06).ignoresSafeArea()
-            // the whole screen pulses on each beat: the quickest way to see the sync with the music
-            Color(hue: Double(l.beats % 12) / 12, saturation: 0.9, brightness: 1)
-                .opacity(flash * 0.55).ignoresSafeArea()
-            VStack(spacing: 22) {
-                Text("Jeux de lumière").font(.system(size: 30, weight: .bold))
-                Text("Prototype : vérifier que le son de Spotify ou Deezer arrive dans l’app")
-                    .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Color(hue: Double(b.beats % 12) / 12, saturation: 0.9, brightness: 1)
+                .opacity(flash * 0.5).ignoresSafeArea()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("Jeux de lumière").font(.system(size: 30, weight: .bold))
+                    Text("L’écran de la TV suit la musique de Spotify ou Deezer, sans micro.")
+                        .foregroundStyle(.secondary)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("1. Touchez le bouton rond ci-dessous, puis « Commencer la diffusion ».")
-                    Text("2. Ouvrez Spotify ou Deezer et lancez une musique.")
-                    Text("3. Revenez ici : le niveau et les flashs doivent suivre la musique.")
-                }
-                .font(.callout)
+                    step(1, "Sur l’appareil branché à la TV, ouvrez l’app web, touchez Télécommande › Cet appareil est l’écran.")
 
-                BroadcastButton().frame(width: 72, height: 72)
-                    .background(Circle().fill(Color.white.opacity(0.08)))
+                    step(2, "Tapez ici le code affiché sur l’écran :")
+                    TextField("K7Q2M", text: $screenCode)
+                        .font(.system(size: 28, weight: .bold, design: .monospaced))
+                        .textInputAutocapitalization(.characters).autocorrectionDisabled()
+                        .padding(12).background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.08)))
+                        .onChange(of: screenCode) { v in
+                            let c = Bridge.clean(v)
+                            if c != v { screenCode = c }
+                            if c.count == Signal.codeLength && b.broadcasting { b.sendCode() }
+                        }
 
-                // level meter
-                HStack(spacing: 6) {
-                    ForEach(0..<9) { i in
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(i < l.level ? Color(hue: 0.33 - Double(i) * 0.04, saturation: 0.9, brightness: 1) : Color.white.opacity(0.1))
-                            .frame(width: 22, height: 14 + CGFloat(i) * 6)
+                    step(3, "Touchez le bouton rond, puis « Commencer la diffusion ».")
+                    HStack {
+                        Spacer()
+                        BroadcastButton().frame(width: 72, height: 72)
+                            .background(Circle().fill(Color.white.opacity(0.08)))
+                            .opacity(codeOK ? 1 : 0.4).disabled(!codeOK)
+                        Spacer()
                     }
-                }
-                .frame(height: 70, alignment: .bottom)
-                .animation(.easeOut(duration: 0.08), value: l.level)
 
-                Group {
-                    if receiving {
-                        Label("Son reçu : ça marche ! \(l.beats) battements détectés", systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                    } else if l.broadcasting {
-                        Label("Diffusion en cours, mais aucun son reçu. Lancez une musique ; si rien ne bouge, cette app de musique bloque la capture.", systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.yellow)
-                    } else {
-                        Label("Diffusion arrêtée", systemImage: "circle")
-                            .foregroundStyle(.secondary)
-                    }
+                    step(4, "Ouvrez Spotify ou Deezer et lancez la musique, sur le haut-parleur ou une enceinte Bluetooth.")
+
+                    meter
+                    status
                 }
-                .font(.callout).multilineTextAlignment(.center)
+                .padding(24)
             }
-            .padding(24)
         }
         .preferredColorScheme(.dark)
         .onReceive(tick) { now = $0 }
-        .onChange(of: l.beats) { _ in
+        .onChange(of: b.beats) { _ in
             flash = 1
             withAnimation(.easeOut(duration: 0.35)) { flash = 0 }
         }
+    }
+
+    private func step(_ n: Int, _ text: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text("\(n)").font(.headline).frame(width: 26, height: 26)
+                .background(Circle().fill(Color.pink.opacity(0.85)))
+            Text(text).font(.callout)
+        }
+    }
+
+    private var meter: some View {
+        HStack(spacing: 6) {
+            ForEach(0..<9) { i in
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(i < b.level ? Color(hue: 0.33 - Double(i) * 0.04, saturation: 0.9, brightness: 1) : Color.white.opacity(0.1))
+                    .frame(width: 22, height: 14 + CGFloat(i) * 6)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 70, alignment: .bottom)
+        .animation(.easeOut(duration: 0.08), value: b.level)
+    }
+
+    @ViewBuilder private var status: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !b.broadcasting {
+                Label("Diffusion arrêtée", systemImage: "circle").foregroundStyle(.secondary)
+            } else {
+                Label(hearing ? "Musique reçue (\(b.beats) battements)" : "Diffusion en cours : lancez une musique",
+                      systemImage: hearing ? "music.note" : "hourglass")
+                    .foregroundStyle(hearing ? .green : .yellow)
+                Label(b.linked ? "Écran \(screenCode) relié : les lumières suivent la musique" : "Connexion à l’écran \(screenCode)…",
+                      systemImage: b.linked ? "tv.fill" : "antenna.radiowaves.left.and.right")
+                    .foregroundStyle(b.linked ? .green : .yellow)
+            }
+        }
+        .font(.callout)
     }
 }
