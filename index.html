@@ -239,6 +239,11 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
 .guest-card input { font-size: 16px; }
 .guest-emojis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .guest-emojis button { font-size: 28px; min-height: 56px; padding: 0; }
+.guest-card .big { min-height: 56px; font-size: 15px; }
+#gLightsN { color: #ffcf5c; }
+.light-page { position: fixed; inset: 0; z-index: 9; background: #000; display: grid; place-items: center; touch-action: manipulation; }
+.light-page p { margin: 0; padding: 24px; text-align: center; font: 600 18px/1.4 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; color: rgba(255, 255, 255, 0.7); text-shadow: 0 0 6px rgba(0, 0, 0, 0.6); }
+.light-page small { font-size: 13px; font-weight: 400; }
 body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.guest-mode .guest-qr { display: none !important; }
 /* packs */
 .packs { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; margin-bottom: 6px; }
@@ -308,11 +313,17 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
   <div class="guest-fx" id="guestFx" aria-hidden="true"></div>
   <div class="guest-qr" id="guestQr" hidden>
     <div class="qr" id="guestQrSmall"></div>
-    <p>Un message pour l’écran ?<br><b>Scannez !</b></p>
+    <p>Lumière ou message ?<br><b>Scannez !</b><br><span id="gLightsN"></span></p>
+  </div>
+  <div class="light-page" id="lightPage" hidden>
+    <p id="lightHint">En attente de la musique…<br><small>Touchez l’écran pour quitter</small></p>
   </div>
   <div class="guest-page" id="guestPage" hidden>
     <div class="guest-card">
-      <h2>Un message pour l’écran</h2>
+      <h2>Votre téléphone dans la soirée</h2>
+      <button type="button" id="gLight" class="primary big">💡 Mon téléphone devient une lumière</button>
+      <p class="fit">Il s’allume aux couleurs de la TV et au rythme de la musique, avec les autres téléphones. Posez-le écran vers le haut, ou levez-le pendant les refrains !</p>
+      <h3>Un message pour l’écran</h3>
       <p class="fit">Il s’affiche sur la TV de la soirée, avec votre prénom.</p>
       <label class="field" for="gName"><span>Votre prénom</span>
         <input id="gName" type="text" maxlength="20" autocomplete="given-name" placeholder="Camille">
@@ -499,12 +510,12 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
       <p class="fit">Le temps restant s’affiche en bas de l’écran pendant la dernière heure, les 10 dernières secondes en grand, puis votre message (ou « C’est l’heure ! ») pendant une minute.</p>
 
       <h3>Messages des invités</h3>
-      <label class="check" for="guestOn"><input type="checkbox" id="guestOn"> Les invités envoient des messages et des émojis à l’écran depuis leur téléphone</label>
+      <label class="check" for="guestOn"><input type="checkbox" id="guestOn"> Les invités scannent un QR code : leur téléphone devient une lumière, et ils envoient messages et émojis à l’écran</label>
       <label class="check" for="guestQrOn"><input type="checkbox" id="guestQrOn" checked> Afficher le QR code dans un coin de l’écran</label>
       <div class="screen-box" id="guestBox" hidden>
         <div class="qr" id="guestQrBig" aria-label="QR code pour les invités"></div>
         <div>
-          <p class="fit">Les invités scannent ce QR code (sur l’écran ou ici), écrivent leur message, et il s’affiche sur la TV. Les insultes et les liens sont bloqués ; un message par invité toutes les 15 secondes.</p>
+          <p class="fit">Les invités scannent ce QR code (sur l’écran ou ici). Leur téléphone peut s’allumer au rythme de la musique, et leurs messages s’affichent sur la TV. Les insultes et les liens sont bloqués ; un message par invité toutes les 15 secondes.</p>
           <button type="button" id="guestClear">Effacer les messages à l’écran</button>
         </div>
       </div>
@@ -2329,7 +2340,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
       else if (S.bass > 0.6 && q > 0.45) { drop = breakT > 2.5; breakT = 0; }
       else if ((recovT += dt) > 1) breakT = 0;
     }
-    if (drop) { S.beat = MOT; S.hueTarget = (S.hueTarget + 120) % 360; energy = Math.max(energy, 0.6); dropFlag = true; } // the drop ends the calm passage at once
+    if (drop) { lightDropAt = performance.now(); S.beat = MOT; S.hueTarget = (S.hueTarget + 120) % 360; energy = Math.max(energy, 0.6); dropFlag = true; } // the drop ends the calm passage at once
     const wasCalm = calmMode;
     if (live) {
       if (!calmMode && energy < 0.25) calmMode = true;
@@ -2393,6 +2404,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     mM.style.transform = 'scaleY(' + S.mid.toFixed(3) + ')';
     mH.style.transform = 'scaleY(' + S.high.toFixed(3) + ')';
     drawOverlay(dt, now);
+    lightCue(now);
     checkSmoothness(now);
     requestAnimationFrame(frame);
   }
@@ -3077,7 +3089,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
   /* ---------- guest messages ----------
      Guests scan a QR code, write a message on their phone and it shows on the TV. Messages travel on the
      same public relay as the iPhone app (topic <code>/m); every screen of the party listens itself. */
-  const GU = { on: store.get('guestOn') === '1', qr: store.get('guestQr') !== '0', mq: null, code: '', queue: [], showing: false, last: {}, fx: 0 };
+  const GU = { on: store.get('guestOn') === '1', qr: store.get('guestQr') !== '0', mq: null, code: '', queue: [], showing: false, last: {}, fx: 0, lights: new Map() };
   const GUEST_EMOJI = ['🎉', '❤️', '🔥', '👏', '😂', '🥳', '💃', '🕺'];
   const guestTopic = (code) => mqTopic(code) + '/m';
   // the party code: the screens' code when paired, else one of this device's own (kept between visits)
@@ -3093,7 +3105,9 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
   const LINK = /(https?:|www\.|\.(com|fr|net|org|io|ly)\b)/i;
   function acceptGuest(m, now) {
     if (!m || typeof m !== 'object' || typeof m.id !== 'string') return null;
-    const id = m.id.slice(0, 16), last = GU.last[id] || { msg: -1e9, fx: -1e9 };
+    const id = m.id.slice(0, 16);
+    if (m.t === 'light') { GU.lights.set(id, now); return null; }
+    const last = GU.last[id] || { msg: -1e9, fx: -1e9 };
     GU.last[id] = last;
     if (m.t === 'react') {
       if (!GUEST_EMOJI.includes(m.e) || now - last.fx < 700) return null;
@@ -3175,6 +3189,37 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     c.on('message', (topic, buf) => { if (GU.mq === c) onGuest(buf); });
   }
   setInterval(guestUi, 1500);   // follows pairing changes (screen code, remote, extra screen)
+
+  /* phones as lights: the main screen (never an extra one) sends a light cue ~12 times a second while guest
+     phones are lit: colours, level, and the tempo with the time since the last beat, so each phone can
+     keep the beat itself despite the relay's delay. Guests' phones say hello every 8 s; a phone silent for
+     25 s is no longer counted. */
+  let lightDropAt = -1e9;
+  const LC = { last: 0, beatAt: 0 };
+  const WAVE_SCENES = ['chase', 'floor', 'disco', 'bars', 'analyser', 'grid', 'sheet'];
+  function litPhones(now) {
+    for (const [id, t] of GU.lights) if (now - t > 25000) GU.lights.delete(id);
+    return GU.lights.size;
+  }
+  function lightCue(now) {
+    if (S.beatFlag) LC.beatAt = now;
+    if (now - LC.last < 80) return;
+    LC.last = now;
+    const c = GU.mq;
+    if (!c || !c.connected || RC.follower || !GU.code || !litPhones(now)) return;
+    const live = A.mode !== 'idle' && !A.paused;
+    const mode = !live ? 'idle' : now - lightDropAt < 1500 ? 'drop' : calmMode ? 'calm' : WAVE_SCENES.includes(current) ? 'wave' : 'pulse';
+    const msg = {
+      h: Math.round(((mapHue(S.hue) % 360) + 360) % 360), h2: Math.round(((mapHue(S.hue + 150) % 360) + 360) % 360),
+      lv: Math.round(Math.min(1, S.loud ?? S.level) * 100) / 100, b: S.beats, bpm: live ? tempo() : 0,
+      ago: Math.round(now - LC.beatAt), m: mode
+    };
+    try { c.publish(mqTopic(GU.code) + '/l', JSON.stringify(msg)); } catch (e) {}
+  }
+  setInterval(() => {
+    const n = GU.on ? litPhones(performance.now()) : 0;
+    $('gLightsN').textContent = n ? (n === 1 ? '1 téléphone allumé' : n + ' téléphones allumés') : '';
+  }, 2000);
   $('guestOn').addEventListener('change', () => { GU.on = $('guestOn').checked; store.set('guestOn', GU.on ? '1' : '0'); guestUi(); remoteSync(); });
   $('guestQrOn').addEventListener('change', () => { GU.qr = $('guestQrOn').checked; store.set('guestQr', GU.qr ? '1' : '0'); guestUi(); remoteSync(); });
   $('guestClear').addEventListener('click', () => {
@@ -3225,6 +3270,83 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
         $('gText').value = '';
         cool = Date.now() + 15000; clearTimeout(coolT); tick();
       }
+    });
+    // the phone as a light: full-screen colour that follows the cue from the main screen
+    const lp = $('lightPage'), hint = $('lightHint');
+    const slot = parseInt(gid.slice(0, 4), 36) % 4;   // its place in the "wave" across the room's phones
+    const L = { on: false, cue: null, at: 0, phase0: 0, period: 0, lastB: -1, k: -1, flash: 0, white: 0, raf: 0, hello: 0, lock: null, t0: 0 };
+    let lsub = null;
+    const lightFrame = (now) => {
+      if (!L.on) return;
+      L.raf = requestAnimationFrame(lightFrame);
+      const dt = Math.min(0.1, (now - (L.t0 || now)) / 1000); L.t0 = now;
+      const q = L.cue, fresh = q && now - L.at < 3000 && q.m !== 'idle';
+      hint.hidden = !!fresh;
+      if (!fresh) { lp.style.background = '#000'; return; }
+      // our own beat clock, set again by every cue; falls back on the beat counter without a tempo
+      let k;
+      if (L.period) k = q.b + Math.floor((now - L.phase0) / L.period); else k = q.b; // beat number, counted on from the last one we heard of
+      if (k !== L.k) { if (L.k !== -1) L.flash = 1; L.k = k; }
+      L.flash *= Math.exp(-dt * (REDUCE ? 4 : 7));
+      L.white *= Math.exp(-dt * 2.2);
+      let h = q.h, sat = 95, lig;
+      if (q.m === 'calm') {
+        lig = 8 + (10 + 22 * q.lv) * (0.5 + 0.5 * Math.sin(now / 1300 + slot * 1.6));
+      } else if (q.m === 'wave') {
+        const mine = ((k % 4) + 4) % 4 === slot;
+        if (!mine) h = q.h2;
+        lig = mine ? 22 + 40 * L.flash + 12 * q.lv : 5 + 8 * q.lv;
+      } else {
+        lig = 10 + 26 * q.lv + 30 * L.flash;
+      }
+      if (q.m === 'drop' && L.white < 0.05 && !REDUCE && !L.dropDone) { L.white = 1; L.dropDone = true; }
+      if (q.m !== 'drop') L.dropDone = false;
+      lig = Math.min(70, lig);
+      const w = L.white;
+      lp.style.background = w > 0.02
+        ? `hsl(${h},${Math.round(sat * (1 - w))}%,${Math.round(lig + (92 - lig) * w)}%)`
+        : `hsl(${h},${sat}%,${Math.round(lig)}%)`;
+    };
+    const lightOn = async () => {
+      L.on = true; lp.hidden = false; hint.hidden = false;
+      try { if (lp.requestFullscreen) await lp.requestFullscreen(); } catch (e) {}
+      try { if (navigator.wakeLock) L.lock = await navigator.wakeLock.request('screen'); } catch (e) {}
+      try {
+        const c = await link();
+        if (!lsub) {
+          lsub = true;
+          const sub = () => c.subscribe(guestTopic(qsInvite).replace(/\/m$/, '/l'));
+          if (c.connected) sub();
+          c.on('connect', sub);
+          c.on('message', (topic, buf) => {
+            if (!topic.endsWith('/l')) return;
+            let m; try { m = JSON.parse(new TextDecoder().decode(buf)); } catch (e) { return; }
+            if (!m || typeof m.h !== 'number') return;
+            const now = performance.now();
+            L.cue = m; L.at = now;
+            const bpm = Number(m.bpm) || 0;
+            if (bpm >= 60 && bpm <= 200) {
+              L.period = 60000 / bpm;
+              // the beat we're told about happened (ago + about 150 ms on the way) before now
+              L.phase0 = now - (Number(m.ago) || 0) - 150;
+            } else L.period = 0;
+          });
+        }
+        post({ t: 'light' });
+      } catch (e) { hint.textContent = 'Pas de connexion internet.'; }
+      clearInterval(L.hello); L.hello = setInterval(() => post({ t: 'light' }), 8000);
+      cancelAnimationFrame(L.raf); L.t0 = 0; L.raf = requestAnimationFrame(lightFrame);
+    };
+    const lightOff = () => {
+      L.on = false; lp.hidden = true; cancelAnimationFrame(L.raf); clearInterval(L.hello);
+      try { if (document.fullscreenElement) document.exitFullscreen(); } catch (e) {}
+      try { if (L.lock) L.lock.release(); } catch (e) {}
+      L.lock = null;
+    };
+    $('gLight').addEventListener('click', lightOn);
+    lp.addEventListener('click', lightOff);
+    document.addEventListener('visibilitychange', async () => {
+      if (L.on && document.visibilityState === 'visible' && navigator.wakeLock) { try { L.lock = await navigator.wakeLock.request('screen'); } catch (e) {} }
     });
     let lastFx = 0;
     GUEST_EMOJI.forEach((e) => {
