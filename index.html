@@ -45,6 +45,9 @@ body {
 
 .hud { position: fixed; left: 0; right: 0; z-index: 2; transition: opacity 0.5s; }
 body.idle .hud { opacity: 0; pointer-events: none; }
+/* the copy of the app shown on the TV through Cast: lights only, no controls */
+body.cast-screen .hud { display: none; }
+body.cast-screen { cursor: none; }
 body.idle { cursor: none; }
 
 .top {
@@ -256,6 +259,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
       </label>
       <button type="button" id="bPal" aria-label="Changer la palette de couleurs">Couleurs : Arc-en-ciel</button>
       <button type="button" id="bFull">Plein écran</button>
+      <button type="button" id="bCastTV" class="primary" hidden>Caster</button>
       <button type="button" id="bCast" class="primary">Sur la TV</button>
       <button type="button" id="bRemote">Télécommande</button>
       <button type="button" id="bOpts">Options</button>
@@ -383,6 +387,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
           <li>Ouvrez les réglages rapides (glissez deux fois depuis le haut de l’écran).</li>
           <li>Touchez <b>Caster</b>, <b>Diffuser l’écran</b> ou <b>Smart View</b> sur Samsung, puis choisissez la TV.</li>
           <li>Pas de bouton ? Ouvrez l’application <b>Google Home</b>, choisissez la TV, puis <b>Caster mon écran</b>.</li>
+          <li>Dans <b>Chrome</b>, le bouton <b>Caster</b> de l’application envoie directement les lumières sur un Chromecast ou une Google TV : le téléphone devient la télécommande.</li>
         </ol>
         <h3>Avec un câble</h3>
         <p>Beaucoup de téléphones récents (Samsung Galaxy S et Note, Pixel 8 et plus) acceptent un adaptateur <b>USB-C vers HDMI</b>.</p>
@@ -393,7 +398,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
         <p>Câble <b>HDMI</b> de l’ordinateur à la TV, puis choisissez l’entrée HDMI sur la télécommande. Sur Windows, <b>Windows + P</b> puis <b>Dupliquer</b> ou <b>Deuxième écran uniquement</b>.</p>
         <h3>Sans fil</h3>
         <ul>
-          <li><b>Chrome ou Edge</b> : menu <b>⋮</b> › <b>Caster…</b> (Chromecast, Google TV).</li>
+          <li><b>Chrome ou Edge</b> : bouton <b>Caster</b> de l’application (lumières seules, en plein écran), ou menu <b>⋮</b> › <b>Caster…</b> (Chromecast, Google TV).</li>
           <li><b>Windows</b> : <b>Windows + K</b> pour les TV compatibles Miracast.</li>
           <li><b>Mac</b> : Centre de contrôle › <b>Recopie de l’écran</b> (Apple TV ou TV AirPlay 2).</li>
         </ul>
@@ -2528,11 +2533,11 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     });
   }
   setInterval(() => { if (RC.iosAt && performance.now() - RC.iosAt > 3000) { RC.iosAt = 0; iphoneState(false); } }, 1000);
-  async function beScreen() {
+  async function beScreen(fixed) {
     rcReset();
     remoteStatus.textContent = 'Préparation…';
     try { await loadRemoteLibs(); } catch (e) { remoteStatus.textContent = 'Chargement impossible. Vérifiez la connexion internet.'; return; }
-    RC.role = 'screen'; RC.code = newCode();
+    RC.role = 'screen'; RC.code = fixed || newCode();
     showScreenCode();
     listenIphone(RC.code);
     remoteStatus.textContent = '';
@@ -2555,7 +2560,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     });
     peer.on('error', (err) => {
       if (RC.peer !== peer) return;
-      if (err && err.type === 'unavailable-id') { beScreen(); return; } // code already taken: draw another one
+      if (err && err.type === 'unavailable-id') { if (!fixed) beScreen(); return; } // code taken: draw another (a cast screen keeps its code)
       remoteStatus.textContent = peerErrorText(err) + ' L’app iPhone peut quand même se connecter avec ce code.';
     });
     peer.on('disconnected', () => { if (RC.peer === peer) { try { peer.reconnect(); } catch (e) {} } }); // keep the code reachable
@@ -2602,6 +2607,57 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     // opened by scanning the screen's QR code: connect straight away
     const qsCode = new URLSearchParams(location.search).get('r');
     if (qsCode) { $('remoteCode').value = qsCode; history.replaceState(null, '', location.pathname); openRemote(); connectTo(qsCode); }
+  }
+
+  /* ---------- Cast (Chrome on computers and Android → Chromecast / Google TV) ----------
+     The Presentation API sends a copy of this app to the TV, opened as a screen with a known code.
+     This device then drives it, either straight through the cast link or, if that link can't carry
+     messages, through the usual pairing by code. */
+  const bCastTV = $('bCastTV');
+  bCastTV.hidden = inFrame || !('PresentationRequest' in window) || location.protocol !== 'https:';
+  function wrapPresentation(pc) {
+    return { get open() { return pc.state === 'connected'; }, send: (m) => pc.send(JSON.stringify(m)), close: () => { try { pc.terminate(); } catch (e) {} } };
+  }
+  bCastTV.addEventListener('click', async () => {
+    const code = newCode();
+    let pc;
+    try { pc = await new PresentationRequest([location.origin + location.pathname + '?ecran=' + code]).start(); }
+    catch (e) {
+      if (!e || e.name !== 'NotAllowedError') note('Aucun écran de diffusion trouvé. Vérifiez que le Chromecast ou la TV est sur le même Wi-Fi, ou touchez « Sur la TV » pour les autres méthodes.');
+      return;
+    }
+    rcReset(); RC.role = 'remote'; RC.code = code;
+    const conn = wrapPresentation(pc);
+    const ready = () => {
+      if (RC.code !== code) return;
+      RC.conn = conn; setBadge('Diffusé sur la TV');
+      const sync = () => { remoteSync(); rcSend({ t: 'scene', current, sel, dur: 0.8 }); };
+      sync(); setTimeout(sync, 2500);   // again once the TV copy has finished loading
+      note('Diffusion lancée : la TV affiche les lumières, la musique de cet appareil les pilote.');
+    };
+    pc.onconnect = ready;
+    if (pc.state === 'connected') ready();
+    pc.onclose = pc.onterminate = () => { if (RC.conn === conn) { RC.conn = null; RC.role = null; setBadge(''); note('Diffusion terminée.'); } };
+    // some cast targets can't carry messages back: pair by code instead
+    setTimeout(() => { if (RC.code === code && RC.conn !== conn) connectTo(code); }, 6000);
+  });
+
+  // this copy was opened on the TV by Cast: become the screen right away, lights only
+  const qsEcran = String(new URLSearchParams(location.search).get('ecran') || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (qsEcran.length === 5 && !inFrame) {
+    history.replaceState(null, '', location.pathname);
+    document.body.classList.add('cast-screen');
+    beScreen(qsEcran);
+  }
+  if (navigator.presentation && navigator.presentation.receiver) {
+    navigator.presentation.receiver.connectionList.then((list) => {
+      const attach = (c) => {
+        c.onmessage = (e) => { let m; try { m = JSON.parse(e.data); } catch (err) { return; } onRemoteMessage(m); };
+        $('screenStatus').textContent = 'Diffusion connectée';
+      };
+      list.connections.forEach(attach);
+      list.onconnectionavailable = (e) => attach(e.connection);
+    }).catch(() => {});
   }
 
   const savedGain = Number(store.get('gain'));
