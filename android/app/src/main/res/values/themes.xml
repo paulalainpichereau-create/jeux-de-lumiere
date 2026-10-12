@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Lumieres" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:colorPrimary">#07060E</item>
+        <item name="android:colorAccent">#FF4D94</item>
+        <item name="android:statusBarColor">#07060E</item>
+        <item name="android:navigationBarColor">#07060E</item>
+    </style>
+</resources>

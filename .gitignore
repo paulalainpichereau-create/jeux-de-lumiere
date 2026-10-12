@@ -5,3 +5,12 @@ ios/Podfile.lock
 ios/build/
 ios/Payload/
 ios/*.ipa
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/build.log
+android/local.properties
+*.jks
+*.keystore
