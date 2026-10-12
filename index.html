@@ -169,7 +169,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
 .qr { background: #fff; padding: 8px; border-radius: 8px; line-height: 0; }
 .qr svg, .qr img { display: block; width: 180px; height: 180px; }
 .code { margin: 2px 0 6px; font: 700 34px/1 var(--f-mono); letter-spacing: 0.18em; color: #fff; }
-#remoteCode { text-transform: uppercase; letter-spacing: 0.15em; font-family: var(--f-mono); }
+#remoteCode, #joinCode { text-transform: uppercase; letter-spacing: 0.15em; font-family: var(--f-mono); }
 
 
 /* simplified controls: one bar, choices in panels */
@@ -382,6 +382,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
           <p class="fit">Code de l’écran</p>
           <p class="code" id="screenCode">·····</p>
           <p class="fit" id="screenStatus">En attente du téléphone…</p>
+          <p class="fit" id="screenExtra" hidden></p>
         </div>
       </div>
 
@@ -397,6 +398,15 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
       <div class="fields">
         <button type="button" id="bRemoteMic" hidden>Lancer le micro</button>
         <button type="button" id="bDisconnect" hidden>Déconnecter</button>
+      </div>
+
+      <h3>3. D’autres écrans (si vous voulez)</h3>
+      <p class="fit">Une 2e TV, une tablette dans la cuisine, un ordinateur sur la terrasse… Sur cet appareil, tapez le code du premier écran : il affichera les mêmes lumières, en même temps.</p>
+      <div class="fields">
+        <label class="field" for="joinCode"><span>Code du premier écran</span>
+          <input id="joinCode" type="text" maxlength="5" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="K7Q2M">
+        </label>
+        <button type="button" id="bJoinScreen">Ajouter cet écran</button>
       </div>
     </div>
   </div>
@@ -599,11 +609,32 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
   /* ---------- remote control: shared state (the UI is wired up further down) ----------
      The phone ("remote") listens with its mic, sends its analysis ~30 times a second and decides the scenes;
      the device on the TV ("screen") draws from those frames. */
-  const RC = { peer: null, conn: null, role: null, code: '', lastSend: 0, beat: false, applying: false, mq: null, iosAt: 0 };
+  const RC = { peer: null, conn: null, role: null, code: '', lastSend: 0, beat: false, applying: false, mq: null, iosAt: 0,
+    follower: false, followers: new Set(), retry: 0 };
   const REM = { frame: null, at: 0, beat: false };
   function rcSend(msg) { try { if (RC.conn && RC.conn.open) RC.conn.send(msg); } catch (e) {} }
   function remoteTell(msg) { if (RC.role === 'remote' && !RC.applying) rcSend(msg); }
-  function remoteSync() { if (RC.role === 'remote' && RC.conn && !RC.applying) rcSend(Object.assign({ t: 'state' }, stateForRemote())); }
+  function remoteSync() {
+    if (RC.role === 'remote' && RC.conn && !RC.applying) rcSend(Object.assign({ t: 'state' }, stateForRemote()));
+    else if (RC.role === 'screen' && !RC.follower && !RC.applying) hubSend(Object.assign({ t: 'state' }, stateForRemote()));
+  }
+  // Several screens: the first screen on a code is the hub; the others follow it and get everything it shows.
+  function hubSend(msg) { for (const c of RC.followers) { try { if (c.open) c.send(msg); } catch (e) {} } }
+  // heartbeat: a device switched off doesn't always close its link, so every link says hello every 2 s
+  // and is dropped after 8 s of silence (the screens and the phone then find each other again)
+  function watchConn(conn) {
+    conn._last = performance.now();
+    conn.on('data', () => { conn._last = performance.now(); });
+    conn.on('open', () => { conn._last = performance.now(); });
+  }
+  setInterval(() => {
+    const now = performance.now();
+    for (const c of [RC.conn, ...RC.followers]) {
+      if (!c || !c.open) continue;
+      if (now - (c._last || now) > 8000) { try { c.close(); } catch (e) {} continue; }
+      try { c.send({ t: 'hb' }); } catch (e) {}
+    }
+  }, 2000);
   const r2 = (x) => Math.round(x * 100) / 100;
   function sendFrame(tb, tm, th, now, isBeat) {
     if (isBeat) RC.beat = true; // never lose a beat between two sends
@@ -2171,6 +2202,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     mdCv.hidden = !md; cv.hidden = md; $('bPreset').hidden = !md;
     if (ORDER.includes(name)) lastIn[CALM.includes(name) ? 'calm' : 'loud'] = name;
     remoteTell({ t: 'scene', current: name, sel, dur });
+    if (RC.role === 'screen' && !RC.follower) hubSend({ t: 'scene', current: name, sel, dur });
     sceneLabel();
   }
   function chooseScene(name) {
@@ -2659,6 +2691,9 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
   function setBadge(text) { remoteBadge.hidden = !text; remoteBadge.textContent = text || ''; }
   function rcReset() {
     try { if (RC.conn) RC.conn.close(); } catch (e) {}
+    for (const c of RC.followers) { try { c.close(); } catch (e) {} }
+    RC.followers.clear(); RC.follower = false; clearTimeout(RC.retryT);
+    $('screenExtra').hidden = true;
     try { if (RC.peer) RC.peer.destroy(); } catch (e) {}
     try { if (RC.mq) RC.mq.end(true); } catch (e) {}
     RC.mq = null; RC.iosAt = 0;
@@ -2692,7 +2727,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     }
   }
   function onRemoteMessage(m) {
-    if (!m || typeof m !== 'object' || RC.role !== 'screen') return;
+    if (!m || typeof m !== 'object' || RC.role !== 'screen' || m.t === 'hb') return;
     if (m.t === 'f') {
       if (!Array.isArray(m.ts) || m.ts.length !== NB || !Array.isArray(m.wv) || m.wv.length !== 64) return;
       REM.frame = m; REM.at = performance.now(); if (m.beat) REM.beat = true;
@@ -2755,6 +2790,8 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     remoteStatus.textContent = '';
     const peer = new window.Peer(peerId(RC.code), peerOpts()); RC.peer = peer;
     peer.on('connection', (conn) => {
+      watchConn(conn);
+      if (conn.metadata && conn.metadata.follow) { addFollower(conn); return; }
       if (RC.conn && RC.conn !== conn) { try { RC.conn.close(); } catch (e) {} } // one phone at a time; the newest wins
       RC.conn = conn;
       conn.on('open', () => {
@@ -2762,7 +2799,10 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
         A.label = 'Écran télécommandé · téléphone connecté'; updateUI();
         note('Téléphone connecté : il pilote maintenant cet écran.');
       });
-      conn.on('data', onRemoteMessage);
+      conn.on('data', (m) => {
+        onRemoteMessage(m);
+        if (m && (m.t === 'f' || m.t === 'state')) hubSend(m); // the other screens get the phone's music and settings
+      });
       conn.on('close', () => {
         if (RC.conn !== conn) return;
         RC.conn = null; REM.frame = null;
@@ -2772,10 +2812,63 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     });
     peer.on('error', (err) => {
       if (RC.peer !== peer) return;
-      if (err && err.type === 'unavailable-id') { if (!fixed) beScreen(); return; } // code taken: draw another (a cast screen keeps its code)
+      // code taken: a code typed or given (TV page, Chromecast, extra screen) joins the screen already there;
+      // a code we drew ourselves is simply drawn again
+      if (err && err.type === 'unavailable-id') { if (fixed) followScreen(RC.code); else beScreen(); return; }
       remoteStatus.textContent = peerErrorText(err) + ' L’app iPhone peut quand même se connecter avec ce code.';
     });
     peer.on('disconnected', () => { if (RC.peer === peer) { try { peer.reconnect(); } catch (e) {} } }); // keep the code reachable
+  }
+  function showFollowers() {
+    const n = RC.followers.size, el = $('screenExtra');
+    el.hidden = !n;
+    el.textContent = n === 1 ? '+ 1 autre écran relié' : n + ' autres écrans reliés';
+  }
+  function addFollower(conn) {
+    RC.followers.add(conn);
+    conn.on('open', () => {
+      try {
+        conn.send(Object.assign({ t: 'state' }, stateForRemote()));
+        conn.send({ t: 'scene', current, sel, dur: 0.8 });
+      } catch (e) {}
+      showFollowers();
+      note('Un autre écran a rejoint la soirée.');
+    });
+    const gone = () => { if (RC.followers.delete(conn)) showFollowers(); };
+    conn.on('close', gone); conn.on('error', gone);
+  }
+  // an extra screen: it follows the first screen on this code, which relays the phone's music and scene choices.
+  // If that screen goes away, this one tries to take its place, so the phone can find the party again.
+  async function followScreen(code) {
+    try { if (RC.peer) RC.peer.destroy(); } catch (e) {}
+    RC.peer = RC.conn = null;
+    RC.role = 'screen'; RC.follower = true; RC.code = code;
+    $('screenStatus').textContent = 'Écran supplémentaire : connexion à la soirée…';
+    A.label = 'Écran supplémentaire · connexion…'; updateUI();
+    const peer = new window.Peer(peerOpts()); RC.peer = peer;
+    const again = () => {
+      if (RC.peer !== peer) return;
+      clearTimeout(RC.retryT);
+      RC.retryT = setTimeout(() => { if (RC.peer === peer) beScreen(code); }, 1500 + Math.random() * 1500);
+    };
+    peer.on('open', () => {
+      if (RC.peer !== peer) return;
+      const conn = peer.connect(peerId(code), { serialization: 'json', metadata: { follow: 1 } }); RC.conn = conn; watchConn(conn);
+      conn.on('open', () => {
+        $('screenStatus').textContent = 'Écran supplémentaire : il suit le premier écran.';
+        A.label = 'Écran supplémentaire · relié à ' + code; updateUI();
+        setBadge('Écran ' + code + ' · supplémentaire');
+        note('Écran ajouté à la soirée : il affiche les mêmes lumières.');
+      });
+      conn.on('data', onRemoteMessage);
+      conn.on('close', () => { if (RC.conn === conn) { RC.conn = null; REM.frame = null; again(); } });
+    });
+    peer.on('error', () => again());
+  }
+  async function joinAsScreen(raw) {
+    const code = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (code.length !== 5) { remoteStatus.textContent = 'Le code fait 5 caractères, comme affiché sur le premier écran.'; return; }
+    beScreen(code); // takes the code if no screen has it yet, otherwise follows the screen that has it
   }
   async function connectTo(raw) {
     const code = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -2787,8 +2880,9 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     const peer = new window.Peer(peerOpts()); RC.peer = peer;
     peer.on('open', () => {
       if (RC.peer !== peer) return;
-      const conn = peer.connect(peerId(code), { serialization: 'json' }); RC.conn = conn;
+      const conn = peer.connect(peerId(code), { serialization: 'json' }); RC.conn = conn; watchConn(conn);
       conn.on('open', () => {
+        RC.retry = 0;
         remoteStatus.textContent = 'Connecté à l’écran ' + code + '. Lancez le micro pour que l’écran suive la musique.';
         setBadge('Télécommande · ' + code);
         $('bRemoteMic').hidden = A.mode === 'mic'; $('bDisconnect').hidden = false;
@@ -2797,10 +2891,22 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
       conn.on('close', () => {
         if (RC.conn !== conn) return;
         RC.conn = null; setBadge(''); $('bRemoteMic').hidden = true;
-        remoteStatus.textContent = 'Connexion à l’écran perdue. Retapez le code pour la rétablir.';
+        retryRemote(code);
       });
     });
-    peer.on('error', (err) => { if (RC.peer === peer) remoteStatus.textContent = peerErrorText(err); });
+    peer.on('error', (err) => {
+      if (RC.peer !== peer) return;
+      if (RC.retry && err && err.type === 'peer-unavailable') { retryRemote(code); return; }
+      remoteStatus.textContent = peerErrorText(err);
+    });
+  }
+  // the screen may have changed hands (another screen took over the code): try again for a little while
+  function retryRemote(code) {
+    if (RC.retry >= 6) { RC.retry = 0; remoteStatus.textContent = 'Connexion à l’écran perdue. Retapez le code pour la rétablir.'; return; }
+    RC.retry++;
+    remoteStatus.textContent = 'Connexion à l’écran perdue. Nouvel essai…';
+    clearTimeout(RC.retryT);
+    RC.retryT = setTimeout(() => { if (RC.role === 'remote' && !RC.conn && RC.code === code) connectTo(code); }, 2500);
   }
   function openRemote() { remoteEl.hidden = false; $('remoteClose').focus(); wake(); }
   function closeRemote() { remoteEl.hidden = true; $('bRemote').focus(); wake(); }
@@ -2811,10 +2917,12 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
   $('bConnect').addEventListener('click', () => connectTo($('remoteCode').value));
   $('remoteCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') connectTo($('remoteCode').value); });
   $('bRemoteMic').addEventListener('click', async () => { await startMic(); if (A.mode === 'mic') $('bRemoteMic').hidden = true; });
-  $('bDisconnect').addEventListener('click', () => { rcReset(); remoteStatus.textContent = 'Déconnecté.'; });
+  $('bDisconnect').addEventListener('click', () => { RC.retry = 0; rcReset(); remoteStatus.textContent = 'Déconnecté.'; });
+  $('bJoinScreen').addEventListener('click', () => joinAsScreen($('joinCode').value));
+  $('joinCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinAsScreen($('joinCode').value); });
   if (inFrame || !window.RTCPeerConnection) {
     $('remoteFrameNote').hidden = false;
-    $('bBeScreen').disabled = true; $('bConnect').disabled = true;
+    $('bBeScreen').disabled = true; $('bConnect').disabled = true; $('bJoinScreen').disabled = true;
   } else {
     // opened by scanning the screen's QR code: connect straight away
     const qsCode = new URLSearchParams(location.search).get('r');
