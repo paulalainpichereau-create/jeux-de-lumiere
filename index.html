@@ -155,7 +155,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
 .fields { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
 .field { display: grid; gap: 4px; flex: 1 1 200px; min-width: 0; }
 .field > span { color: var(--dim); font-size: 13px; }
-.sheet input[type="text"], .sheet input[type="time"], .sheet select {
+.sheet input[type="text"], .sheet input[type="time"], .sheet select, .guest-card input, .guest-card textarea {
   box-sizing: border-box; width: 100%; min-height: 42px; padding: 0 10px;
   background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 8px;
   font: 16px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -204,6 +204,42 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
 .welcome .lead { margin: 16px 0 0; font: 500 18px/1.3 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; color: var(--ink); }
 .welcome .link { justify-self: start; }
 #moreSheet .slider { margin-top: 4px; }
+/* guest messages */
+.guest-wall { position: fixed; z-index: 2; left: 50%; top: 18%; transform: translateX(-50%); width: min(900px, calc(100% - 32px)); pointer-events: none; display: grid; justify-items: center; }
+.guest-msg {
+  box-sizing: border-box; max-width: 100%; padding: 18px 28px 20px; text-align: center;
+  background: rgba(7, 6, 14, 0.62); border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 18px;
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  animation: gIn 0.6s cubic-bezier(.2,.9,.3,1.3) both;
+}
+.guest-msg.out { animation: gOut 0.6s ease-in both; }
+.guest-msg small { display: block; font: 600 clamp(12px, 1.6vw, 18px)/1 var(--f-mono); letter-spacing: 0.12em; text-transform: uppercase; color: #ffcf5c; margin-bottom: 10px; }
+.guest-msg p { margin: 0; font: 700 clamp(22px, 4.6vw, 64px)/1.12 var(--f-display); color: #fff; overflow-wrap: anywhere; text-shadow: 0 0 24px rgba(255, 77, 148, 0.55); }
+@keyframes gIn { from { opacity: 0; transform: translateY(24px) scale(0.92); } to { opacity: 1; transform: none; } }
+@keyframes gOut { to { opacity: 0; transform: translateY(-16px) scale(0.96); } }
+.guest-fx { position: fixed; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; }
+.guest-fx span { position: absolute; bottom: -60px; font-size: clamp(32px, 5vw, 64px); animation: gRise 3.6s cubic-bezier(.3,.6,.4,1) forwards; }
+@keyframes gRise { 0% { transform: translateY(0) scale(0.6); opacity: 0; } 12% { opacity: 1; } 100% { transform: translateY(-82vh) translateX(var(--dx, 0px)) scale(1.15); opacity: 0; } }
+.guest-qr {
+  position: fixed; z-index: 2; right: calc(14px + env(safe-area-inset-right, 0px)); bottom: calc(86px + env(safe-area-inset-bottom, 0px));
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px 8px 8px; border-radius: 10px;
+  background: rgba(7, 6, 14, 0.7); border: 1px solid var(--line); pointer-events: none;
+}
+.party .guest-qr, .cast-screen .guest-qr { bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+.guest-qr .qr { width: 86px; height: 86px; padding: 5px; background: #fff; border-radius: 6px; }
+.guest-qr .qr svg { display: block; width: 100%; height: 100%; }
+.guest-qr p { margin: 0; font: 500 12px/1.35 var(--f-mono); color: var(--dim); }
+.guest-qr b { color: var(--ink); font-size: 14px; }
+.guest-page { position: fixed; inset: 0; z-index: 7; overflow-y: auto; display: grid; place-items: center; padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px)); background: rgba(7, 6, 14, 0.55); }
+.guest-card { box-sizing: border-box; width: min(480px, 100%); display: grid; gap: 12px; padding: 22px; background: #110e20; border: 1px solid var(--line); border-radius: 14px; }
+.guest-card h2 { margin: 0; font: 700 22px/1.15 var(--f-display); }
+.guest-card h3 { margin: 6px 0 0; }
+.guest-card .fit { margin: 0; }
+.guest-card textarea { padding: 10px; font: 16px/1.35 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; resize: vertical; }
+.guest-card input { font-size: 16px; }
+.guest-emojis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.guest-emojis button { font-size: 28px; min-height: 56px; padding: 0; }
+body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.guest-mode .guest-qr { display: none !important; }
 /* packs */
 .packs { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; margin-bottom: 6px; }
 .packs .choice { min-height: 0; margin: 0; padding: 10px 14px; }
@@ -268,6 +304,28 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
   </header>
 
   <div class="note" id="note" role="status" aria-live="polite" hidden></div>
+  <div class="guest-wall" id="guestWall" aria-live="polite"></div>
+  <div class="guest-fx" id="guestFx" aria-hidden="true"></div>
+  <div class="guest-qr" id="guestQr" hidden>
+    <div class="qr" id="guestQrSmall"></div>
+    <p>Un message pour l’écran ?<br><b>Scannez !</b></p>
+  </div>
+  <div class="guest-page" id="guestPage" hidden>
+    <div class="guest-card">
+      <h2>Un message pour l’écran</h2>
+      <p class="fit">Il s’affiche sur la TV de la soirée, avec votre prénom.</p>
+      <label class="field" for="gName"><span>Votre prénom</span>
+        <input id="gName" type="text" maxlength="20" autocomplete="given-name" placeholder="Camille">
+      </label>
+      <label class="field" for="gText"><span>Message</span>
+        <textarea id="gText" maxlength="80" rows="3" placeholder="Joyeux anniversaire Marie !"></textarea>
+      </label>
+      <button type="button" id="gSend" class="primary">Envoyer</button>
+      <p class="fit" id="gStatus" role="status" aria-live="polite"></p>
+      <h3>Ou juste un émoji</h3>
+      <div class="guest-emojis" id="gEmojis"></div>
+    </div>
+  </div>
 
   <section class="hud deck" aria-label="Commandes">
     <div class="row bar">
@@ -311,7 +369,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
       <div class="fields">
         <button type="button" id="bParty" class="primary" aria-pressed="false">Mode soirée</button>
         <button type="button" id="bFull">Plein écran</button>
-        <button type="button" id="bOpts">Message, compte à rebours, flashs</button>
+        <button type="button" id="bOpts">Messages des invités, compte à rebours, flashs</button>
       </div>
       <h3>Son</h3>
       <label class="slider" for="gain">Sensibilité
@@ -439,6 +497,18 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
         <button type="button" id="cdClear">Effacer</button>
       </div>
       <p class="fit">Le temps restant s’affiche en bas de l’écran pendant la dernière heure, les 10 dernières secondes en grand, puis votre message (ou « C’est l’heure ! ») pendant une minute.</p>
+
+      <h3>Messages des invités</h3>
+      <label class="check" for="guestOn"><input type="checkbox" id="guestOn"> Les invités envoient des messages et des émojis à l’écran depuis leur téléphone</label>
+      <label class="check" for="guestQrOn"><input type="checkbox" id="guestQrOn" checked> Afficher le QR code dans un coin de l’écran</label>
+      <div class="screen-box" id="guestBox" hidden>
+        <div class="qr" id="guestQrBig" aria-label="QR code pour les invités"></div>
+        <div>
+          <p class="fit">Les invités scannent ce QR code (sur l’écran ou ici), écrivent leur message, et il s’affiche sur la TV. Les insultes et les liens sont bloqués ; un message par invité toutes les 15 secondes.</p>
+          <button type="button" id="guestClear">Effacer les messages à l’écran</button>
+        </div>
+      </div>
+      <p class="fit" id="guestNote" hidden></p>
 
       <h3>Stroboscope</h3>
       <p class="warn">Les flashs lumineux peuvent déclencher des crises chez les personnes épileptiques ou photosensibles. Prévenez vos invités avant de l’activer.</p>
@@ -2686,7 +2756,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     return c;
   }
   function stateForRemote() {
-    return { sel, pack: pack.id, palette: pal.id, autoSet: [...autoSet], opt: { text: OPT.text, mode: OPT.mode, cd: OPT.cd, strobe: OPT.strobe } };
+    return { sel, pack: pack.id, palette: pal.id, autoSet: [...autoSet], opt: { text: OPT.text, mode: OPT.mode, cd: OPT.cd, strobe: OPT.strobe, guests: GU.on, guestQr: GU.qr } };
   }
   function setBadge(text) { remoteBadge.hidden = !text; remoteBadge.textContent = text || ''; }
   function rcReset() {
@@ -2723,6 +2793,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
       OPT.mode = ['off', 'always', 'cycle', 'drop'].includes(m.opt.mode) ? m.opt.mode : OPT.mode;
       OPT.cd = /^\d{2}:\d{2}$/.test(m.opt.cd || '') ? m.opt.cd : '';
       OPT.strobe = !!m.opt.strobe && !REDUCE;
+      if (typeof m.opt.guests === 'boolean') { GU.on = m.opt.guests; GU.qr = m.opt.guestQr !== false; guestUi(); }
       msgText.value = OPT.text; msgMode.value = OPT.mode; cdTime.value = OPT.cd; strobeBox.checked = OPT.strobe;
     }
   }
@@ -2736,6 +2807,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     RC.applying = true;
     try {
       if (m.t === 'state') applyState(m);
+      else if (m.t === 'guestClear') clearGuests();
       else if (m.t === 'scene') {
         if (typeof m.sel === 'string' && (m.sel === 'auto' || SCENE_NAMES[m.sel])) { sel = m.sel; markScene(); }
         const dur = Math.min(3, Math.max(0.2, Number(m.dur) || 0.8));
@@ -2801,7 +2873,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
       });
       conn.on('data', (m) => {
         onRemoteMessage(m);
-        if (m && (m.t === 'f' || m.t === 'state')) hubSend(m); // the other screens get the phone's music and settings
+        if (m && (m.t === 'f' || m.t === 'state' || m.t === 'guestClear')) hubSend(m); // the other screens get the phone's music and settings
       });
       conn.on('close', () => {
         if (RC.conn !== conn) return;
@@ -3002,6 +3074,170 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     }).catch(() => {});
   }
 
+  /* ---------- guest messages ----------
+     Guests scan a QR code, write a message on their phone and it shows on the TV. Messages travel on the
+     same public relay as the iPhone app (topic <code>/m); every screen of the party listens itself. */
+  const GU = { on: store.get('guestOn') === '1', qr: store.get('guestQr') !== '0', mq: null, code: '', queue: [], showing: false, last: {}, fx: 0 };
+  const GUEST_EMOJI = ['🎉', '❤️', '🔥', '👏', '😂', '🥳', '💃', '🕺'];
+  const guestTopic = (code) => mqTopic(code) + '/m';
+  // the party code: the screens' code when paired, else one of this device's own (kept between visits)
+  function guestCode() {
+    if (RC.role && RC.code) return RC.code;
+    let c = store.get('guestCode');
+    if (!/^[A-Z0-9]{5}$/.test(c || '')) { c = newCode(); store.set('guestCode', c); }
+    return c;
+  }
+  const guestUrl = (code) => location.origin + location.pathname + '?invite=' + code;
+  const norm = (t) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const BAD = /\b(con|conne|connard|connasse|salope|salaud|pute|putain|encule|enculer|batard|merde|nique|niquer|ntm|fdp|pd|pede|tapette|bougnoule|negro|negre|bite|couille|couilles|chatte|bouffon|fuck|fucking|shit|bitch|cunt|nigger|nigga|whore|slut|dick|pussy)\b/;
+  const LINK = /(https?:|www\.|\.(com|fr|net|org|io|ly)\b)/i;
+  function acceptGuest(m, now) {
+    if (!m || typeof m !== 'object' || typeof m.id !== 'string') return null;
+    const id = m.id.slice(0, 16), last = GU.last[id] || { msg: -1e9, fx: -1e9 };
+    GU.last[id] = last;
+    if (m.t === 'react') {
+      if (!GUEST_EMOJI.includes(m.e) || now - last.fx < 700) return null;
+      last.fx = now; return { t: 'react', e: m.e };
+    }
+    if (m.t !== 'msg') return null;
+    const text = String(m.text || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    const name = String(m.name || '').replace(/\s+/g, ' ').trim().slice(0, 20);
+    if (!text || now - last.msg < 12000) return null;
+    if (BAD.test(norm(text)) || BAD.test(norm(name)) || LINK.test(text) || LINK.test(name)) return null;
+    last.msg = now;
+    return { t: 'msg', text, name };
+  }
+  function showNextGuest() {
+    if (GU.showing || !GU.queue.length) return;
+    GU.showing = true;
+    const m = GU.queue.shift(), el = document.createElement('div');
+    el.className = 'guest-msg';
+    if (m.name) { const n = document.createElement('small'); n.textContent = m.name; el.appendChild(n); }
+    const p = document.createElement('p'); p.textContent = m.text; el.appendChild(p);
+    const wall = $('guestWall'); wall.replaceChildren(el);
+    const hold = Math.min(11000, 5500 + m.text.length * 70);
+    setTimeout(() => {
+      el.classList.add('out');
+      setTimeout(() => { if (el.parentNode) el.remove(); GU.showing = false; showNextGuest(); }, 650);
+    }, hold);
+  }
+  function burst(e) {
+    const box = $('guestFx');
+    if (box.childElementCount > 40) return;
+    for (let i = 0; i < 3; i++) {
+      const sp = document.createElement('span');
+      sp.textContent = e;
+      sp.style.left = (8 + Math.random() * 84) + '%';
+      sp.style.setProperty('--dx', Math.round((Math.random() - 0.5) * 160) + 'px');
+      sp.style.animationDelay = (i * 0.18) + 's';
+      sp.addEventListener('animationend', () => sp.remove());
+      box.appendChild(sp);
+    }
+  }
+  function clearGuests() {
+    GU.queue.length = 0; $('guestWall').replaceChildren(); $('guestFx').replaceChildren(); GU.showing = false;
+  }
+  function onGuest(raw) {
+    let m; try { m = JSON.parse(new TextDecoder().decode(raw)); } catch (e) { return; }
+    const ok = acceptGuest(m, performance.now());
+    if (!ok) return;
+    if (ok.t === 'react') { burst(ok.e); return; }
+    if (GU.queue.length >= 12) GU.queue.shift();
+    GU.queue.push(ok); showNextGuest();
+  }
+  const displays = () => RC.role !== 'remote' && !document.body.classList.contains('guest-mode');
+  // keeps the listener and the QR codes in line with the settings and with the pairing state
+  async function guestUi() {
+    const want = GU.on && !inFrame ? guestCode() : '';
+    $('guestOn').checked = GU.on; $('guestQrOn').checked = GU.qr;
+    $('guestBox').hidden = !want;
+    $('guestNote').hidden = !(GU.on && inFrame);
+    $('guestNote').textContent = 'Les messages des invités fonctionnent dans l’application en ligne (adresse GitHub), pas dans cet aperçu.';
+    const listen = want && displays() ? want : '';
+    $('guestQr').hidden = !(listen && GU.qr);
+    if (!want) { if (!GU.on) clearGuests(); }
+    if (want && want !== GU.qrFor) {
+      try { await loadRemoteLibs(); } catch (e) { return; }
+      const q = qrcode(0, 'M'); q.addData(guestUrl(want)); q.make();
+      const svg = q.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+      $('guestQrSmall').innerHTML = svg; $('guestQrBig').innerHTML = svg;
+      GU.qrFor = want;
+    }
+    if (listen === GU.code) return;
+    try { if (GU.mq) GU.mq.end(true); } catch (e) {}
+    GU.mq = null; GU.code = listen;
+    if (!listen) return;
+    try { await loadRemoteLibs(); } catch (e) { return; }
+    if (GU.code !== listen || !window.mqtt) return;
+    const c = window.mqtt.connect(MQ_URL(), { clientId: 'jdl-mur-' + newCode().toLowerCase(), clean: true, keepalive: 30, reconnectPeriod: 4000, connectTimeout: 10000 });
+    GU.mq = c;
+    c.on('connect', () => c.subscribe(guestTopic(listen)));
+    c.on('message', (topic, buf) => { if (GU.mq === c) onGuest(buf); });
+  }
+  setInterval(guestUi, 1500);   // follows pairing changes (screen code, remote, extra screen)
+  $('guestOn').addEventListener('change', () => { GU.on = $('guestOn').checked; store.set('guestOn', GU.on ? '1' : '0'); guestUi(); remoteSync(); });
+  $('guestQrOn').addEventListener('change', () => { GU.qr = $('guestQrOn').checked; store.set('guestQr', GU.qr ? '1' : '0'); guestUi(); remoteSync(); });
+  $('guestClear').addEventListener('click', () => {
+    clearGuests();
+    if (RC.role === 'remote') remoteTell({ t: 'guestClear' });
+    else if (RC.role === 'screen' && !RC.follower) hubSend({ t: 'guestClear' });
+  });
+  guestUi();
+
+  // the guest's side: this page opened with ?invite=CODE
+  const qsInvite = String(new URLSearchParams(location.search).get('invite') || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (qsInvite.length === 5) {
+    document.body.classList.add('guest-mode');
+    $('guestPage').hidden = false;
+    let gid = store.get('guestId');
+    if (!/^[a-z0-9]{8}$/.test(gid || '')) { gid = newCode().toLowerCase() + newCode().toLowerCase().slice(0, 3); store.set('guestId', gid); }
+    $('gName').value = store.get('guestName') || '';
+    const gs = $('gStatus');
+    let gmq = null, cool = 0, coolT = 0;
+    const link = async () => {
+      if (gmq) return gmq;
+      await loadRemoteLibs();
+      gmq = window.mqtt.connect(MQ_URL(), { clientId: 'jdl-invite-' + gid, clean: true, keepalive: 30, reconnectPeriod: 3000, connectTimeout: 10000 });
+      return gmq;
+    };
+    const post = async (m) => {
+      try {
+        const c = await link();
+        c.publish(guestTopic(qsInvite), JSON.stringify(Object.assign({ id: gid }, m)));
+        return true;
+      } catch (e) { gs.textContent = 'Pas de connexion internet. Réessayez dans un instant.'; return false; }
+    };
+    link().catch(() => {});
+    const tick = () => {
+      const left = Math.ceil((cool - Date.now()) / 1000);
+      $('gSend').disabled = left > 0;
+      $('gSend').textContent = left > 0 ? 'Envoyer (' + left + ' s)' : 'Envoyer';
+      if (left > 0) coolT = setTimeout(tick, 500);
+    };
+    $('gSend').addEventListener('click', async () => {
+      const text = $('gText').value.replace(/\s+/g, ' ').trim(), name = $('gName').value.trim();
+      if (!text) { gs.textContent = 'Écrivez d’abord votre message.'; $('gText').focus(); return; }
+      if (LINK.test(text)) { gs.textContent = 'Les liens ne s’affichent pas sur l’écran.'; return; }
+      if (BAD.test(norm(text)) || BAD.test(norm(name))) { gs.textContent = 'Ce message ne sera pas affiché. On reste sympa !'; return; }
+      store.set('guestName', name);
+      if (await post({ t: 'msg', text, name })) {
+        gs.textContent = 'Envoyé ! Il s’affiche sur l’écran dans un instant.';
+        $('gText').value = '';
+        cool = Date.now() + 15000; clearTimeout(coolT); tick();
+      }
+    });
+    let lastFx = 0;
+    GUEST_EMOJI.forEach((e) => {
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = e; b.setAttribute('aria-label', 'Envoyer ' + e);
+      b.addEventListener('click', () => {
+        if (Date.now() - lastFx < 800) return;
+        lastFx = Date.now(); post({ t: 'react', e });
+        gs.textContent = e + ' envoyé !';
+      });
+      $('gEmojis').appendChild(b);
+    });
+  }
+
   /* ---------- simplified controls: sound panel and "Plus" panel ---------- */
   const srcEl = $('srcSheet'), moreEl = $('moreSheet');
   function openSheet(el) { el.hidden = false; const b = el.querySelector('button'); if (b) b.focus(); wake(); }
@@ -3057,7 +3293,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
   });
   $('bWelcome').addEventListener('click', openWelcome);
   // first visit, unless this page was opened as a TV screen or from a remote's QR code
-  if (!store.get('welcomed') && !document.body.classList.contains('cast-screen') && !RC.role && remoteEl.hidden) openWelcome();
+  if (!store.get('welcomed') && !document.body.classList.contains('cast-screen') && !document.body.classList.contains('guest-mode') && !RC.role && remoteEl.hidden) openWelcome();
 
   const savedGain = Number(store.get('gain'));
   if (savedGain >= 50 && savedGain <= 200) { $('gain').value = String(savedGain); S.gain = savedGain / 100; }
