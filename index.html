@@ -366,6 +366,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
         <button type="button" id="bNextScene" aria-label="Scène suivante">▶</button>
         <button type="button" data-scene="auto" aria-pressed="true">Auto</button>
         <button type="button" id="bPreset" hidden>Effet suivant</button>
+        <button type="button" id="bTile" hidden aria-haspopup="dialog">Régler la dalle</button>
       </div>
       <button type="button" id="bPal" aria-haspopup="dialog" aria-label="Choisir les couleurs">Couleurs : Arc-en-ciel</button>
       <button type="button" id="bMore" aria-haspopup="dialog">Plus</button>
@@ -415,6 +416,52 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
       <h3>Plusieurs écrans</h3>
       <label class="check" for="multiHue"><input type="checkbox" id="multiHue"> Une couleur différente sur chaque écran, qui tourne au rythme de la musique</label>
       <p class="fit">Pour une TV et une tablette (ou plus) reliées avec Plus › Télécommande › « D’autres écrans ». Chaque écran prend une autre couleur de la palette, et toutes avancent d’un cran à chaque battement. Les téléphones des invités ont le même effet : « Arc-en-ciel », dans les options des messages.</p>
+    </div>
+  </div>
+
+  <div class="sheet" id="tileSheet" role="dialog" aria-modal="true" aria-labelledby="tileTitle" hidden>
+    <div class="sheet-card">
+      <div class="sheet-head">
+        <h2 id="tileTitle">Dalle de couleur</h2>
+        <button type="button" id="tileClose" aria-label="Fermer">Fermer</button>
+      </div>
+      <p class="fit">Tout l’écran d’une seule couleur, qui suit la musique. Les réglages s’appliquent tout de suite.</p>
+      <h3>Rythme</h3>
+      <div class="choices" id="tileRhythm">
+        <button type="button" class="choice" data-rhythm="pulse"><b>Pulsation</b><span>La couleur reste, la lumière bat avec les basses. Comme un projecteur de scène.</span></button>
+        <button type="button" class="choice" data-rhythm="jump"><b>Saut de couleur</b><span>La couleur change franchement sur les battements. Ambiance club.</span></button>
+        <button type="button" class="choice" data-rhythm="fade"><b>Fondu lent</b><span>La couleur glisse doucement vers la suivante. Pour les moments calmes.</span></button>
+      </div>
+      <div class="fields" id="tileEveryBox">
+        <label class="field" for="tileEvery"><span>Saut de couleur</span>
+          <select id="tileEvery">
+            <option value="1">À chaque battement</option>
+            <option value="2">Tous les 2 battements</option>
+            <option value="4">Tous les 4 battements</option>
+          </select>
+        </label>
+      </div>
+      <h3>Couleurs</h3>
+      <div class="fields">
+        <label class="field" for="tileColors"><span>Couleurs utilisées</span>
+          <select id="tileColors">
+            <option value="palette">Celles de la palette choisie</option>
+            <option value="fixed">Une seule couleur</option>
+          </select>
+        </label>
+        <label class="mine-c" id="tileFixedBox" hidden><input type="color" id="tileFixed" value="#ff2d55" aria-label="La couleur"></label>
+      </div>
+      <h3>Plusieurs écrans</h3>
+      <div class="fields">
+        <label class="field" for="tileMulti"><span>Avec des écrans reliés</span>
+          <select id="tileMulti">
+            <option value="same">Tous de la même couleur</option>
+            <option value="each">Chacun sa couleur</option>
+            <option value="chase">Chenillard : un écran allumé à la fois</option>
+          </select>
+        </label>
+      </div>
+      <p class="fit">Dans les packs Club, Mariage et Lounge, la dalle a son propre rythme (saut ou fondu) ; choisie à la main, elle suit ces réglages.</p>
     </div>
   </div>
 
@@ -2163,7 +2210,59 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     ctx.globalCompositeOperation = 'lighter';
   }
 
+  /* ---------- colour tile: the whole screen one plain colour, moving with the music ----------
+     rhythm: pulse (one colour, brightness on the bass; next colour every 16 beats), jump (hard change every
+     1, 2 or 4 beats), fade (slides to the next colour over 8 beats). Colours: the palette's own, or one fixed
+     colour. Several screens: all the same, each its own colour, or a chase (one screen lit at a time). */
+  const TILE = { rhythm: 'pulse', every: 1, colors: 'palette', fixed: '#ff2d55', multi: 'same' };
+  const ARC_COLS = [0, 28, 52, 125, 205, 268, 312];   // with the rainbow palette: plain red, orange, yellow…
+  const hexRgb = (hex) => { const n = parseInt(String(hex).slice(1), 16) || 0; return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
+  function hslRgb(h, s, l) {
+    s /= 100; l /= 100;
+    const k = (n) => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+    const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1));
+    return [255 * f(0), 255 * f(8), 255 * f(4)];
+  }
+  function tileColors() {
+    if (TILE.colors === 'fixed') return [hexRgb(TILE.fixed)];
+    const hues = pal.hues ? pal.hues : !pal.w ? ARC_COLS : [pal.c - pal.w, pal.c - pal.w / 3, pal.c + pal.w / 3, pal.c + pal.w];
+    return hues.map((h) => hslRgb(((h % 360) + 360) % 360, 95, 52));
+  }
+  // a pack can set its own rhythm for the tile while it plays in Auto
+  const tileRhythm = () => (sel === 'auto' && pack.tile) ? pack.tile : TILE;
+  const TL = { cur: null, flash: 0, lv: 0, idx: 0, cols: [], lit: 1 };
+  function sceneTile(dt) {
+    const R = tileRhythm(), rhythm = R.rhythm || TILE.rhythm, every = R.every || TILE.every;
+    const cols = tileColors(), N = cols.length, k = MS.k, n = MS.n, i = MS.i;
+    if (S.beatFlag) TL.flash = MOT;
+    TL.flash *= Math.exp(-dt * (rhythm === 'fade' ? 3 : 7));
+    TL.lv += ((S.bass * 0.7 + S.level * 0.3) - TL.lv) * (1 - Math.exp(-dt * (rhythm === 'fade' ? 3 : 14)));
+    const step = rhythm === 'pulse' ? Math.floor(k / 16) : rhythm === 'fade' ? Math.floor(k / 8) : Math.floor(k / every);
+    let idx = step + (TILE.multi === 'each' ? i : 0);
+    idx = ((idx % N) + N) % N;
+    let lit = 1;
+    if (TILE.multi === 'chase' && n > 1) lit = (((k % n) + n) % n) === i ? 1 : 0.06;
+    if (N === 1 && rhythm === 'jump') lit *= step % 2 ? 0.4 : 1;   // one colour: the jump is in brightness
+    const target = cols[idx];
+    if (!TL.cur) TL.cur = target.slice();
+    const rate = rhythm === 'jump' ? 80 : rhythm === 'pulse' ? 3 : 0.55;   // fade: a few seconds to the next colour
+    for (let c = 0; c < 3; c++) TL.cur[c] += (target[c] - TL.cur[c]) * (1 - Math.exp(-dt * rate));
+    TL.lit += (lit - TL.lit) * (1 - Math.exp(-dt * (rhythm === 'fade' ? 4 : 40)));
+    let b;
+    if (rhythm === 'pulse') b = 0.28 + 0.55 * TL.lv + 0.3 * TL.flash;
+    else if (rhythm === 'jump') b = 0.72 + 0.15 * TL.lv + 0.18 * TL.flash;
+    else b = 0.5 + 0.1 * Math.sin(S.t * 0.9) + 0.25 * TL.lv + 0.08 * TL.flash;
+    b *= TL.lit;
+    const white = Math.max(0, b - 1) * 0.6, m = Math.min(b, 1);
+    TL.idx = idx; TL.cols = cols;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = `rgb(${Math.round(TL.cur[0] * m + 255 * white)},${Math.round(TL.cur[1] * m + 255 * white)},${Math.round(TL.cur[2] * m + 255 * white)})`;
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'lighter';
+  }
+
   const SCENE_FN = {
+    tile: sceneTile,
     beams: sceneBeams, lasers: sceneLasers, tunnel: sceneTunnel, bars: sceneBars,
     grid: sceneGrid, sparks: sceneSparks, waves: sceneWaves, kaleido: sceneKaleido,
     scope: sceneScope, analyser: sceneAnalyser, psyche: scenePsyche, plasma: scenePlasma,
@@ -2175,11 +2274,11 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     beams: 0.42, lasers: 0.24, tunnel: 0.2, bars: 0.38, grid: 0.45, sparks: 0.22, waves: 0.3, kaleido: 0.22,
     scope: 0.25, analyser: 0.4, psyche: 0.03, plasma: 0.5, ambiance: 1,
     disco: 0.3, chase: 0.45, sheet: 0.35, floor: 0.5, aurora: 0.12,
-    halloween: 1, xmas: 1, newyear: 0.18, easter: 1, valentine: 1, birthday: 1
+    halloween: 1, xmas: 1, newyear: 0.18, easter: 1, valentine: 1, birthday: 1, tile: 1
   };
   const ALL = ['beams', 'lasers', 'tunnel', 'bars', 'grid', 'sparks', 'waves', 'kaleido', 'scope', 'analyser', 'psyche', 'plasma',
     'disco', 'chase', 'sheet', 'floor', 'aurora', 'ambiance', 'milkdrop',
-    'halloween', 'xmas', 'newyear', 'easter', 'valentine', 'birthday'];
+    'halloween', 'xmas', 'newyear', 'easter', 'valentine', 'birthday', 'tile'];
 
   /* ---------- MilkDrop (Butterchurn, loaded on first use) ---------- */
   const mdCv = $('mdStage');
@@ -2237,10 +2336,10 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     if ((S.beats - MD.beatsAt >= 32 && MD.t > 15) || MD.t > 40) nextPreset(2.7);
     try { MD.vis.render(); } catch (e) {}
   }
-  const ORDER = ['beams', 'disco', 'psyche', 'waves', 'chase', 'tunnel', 'grid', 'sheet', 'plasma', 'lasers', 'floor', 'sparks', 'scope', 'kaleido', 'analyser', 'bars', 'aurora', 'ambiance'];
+  const ORDER = ['beams', 'disco', 'psyche', 'waves', 'chase', 'tunnel', 'grid', 'sheet', 'plasma', 'lasers', 'floor', 'sparks', 'scope', 'kaleido', 'analyser', 'bars', 'aurora', 'ambiance', 'tile'];
   const CALM = ['aurora', 'ambiance', 'waves', 'kaleido', 'plasma'];
   const SCENE_GROUPS = [
-    ['Lumières', [['beams', 'Projecteurs'], ['lasers', 'Lasers'], ['tunnel', 'Tunnel'], ['bars', 'Spectre'], ['grid', 'Grille'], ['sparks', 'Étincelles'], ['waves', 'Ondes'], ['kaleido', 'Kaléido']]],
+    ['Lumières', [['beams', 'Projecteurs'], ['lasers', 'Lasers'], ['tunnel', 'Tunnel'], ['bars', 'Spectre'], ['grid', 'Grille'], ['sparks', 'Étincelles'], ['waves', 'Ondes'], ['kaleido', 'Kaléido'], ['tile', 'Dalle de couleur']]],
     ['Club', [['disco', 'Boule à facettes'], ['chase', 'Chenillard'], ['sheet', 'Nappe laser'], ['floor', 'Piste de danse']]],
     ['Rétro', [['scope', 'Oscillo'], ['analyser', 'Analyseur'], ['psyche', 'Psyché'], ['plasma', 'Plasma'], ['milkdrop', 'MilkDrop']]],
     ['Calme', [['aurora', 'Aurore'], ['ambiance', 'Ambiance']]],
@@ -2252,12 +2351,12 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
   // fades ×fade). A party pack comes back to its own scene (home) between the others.
   const PACKS = [
     { id: 'mix', name: 'Tout mélanger', desc: 'Toutes les scènes avec une étoile, dans vos couleurs.' },
-    { id: 'club', name: 'Club électro', short: 'Club', desc: 'Lasers, nappes et chenillards en néon, changements rapides.', scenes: ['lasers', 'sheet', 'chase', 'tunnel', 'grid', 'beams', 'floor', 'aurora', 'waves'], palette: 'neon', pace: 0.7, fade: 0.6 },
+    { id: 'club', name: 'Club électro', short: 'Club', desc: 'Lasers, nappes et chenillards en néon, changements rapides.', scenes: ['lasers', 'sheet', 'chase', 'tunnel', 'grid', 'beams', 'tile', 'floor', 'aurora', 'waves'], palette: 'neon', pace: 0.7, fade: 0.6, tile: { rhythm: 'jump', every: 1 } },
     { id: 'disco', name: 'Disco et années 80', short: 'Disco', desc: 'Boule à facettes, piste de danse et spectre arc-en-ciel.', scenes: ['disco', 'floor', 'chase', 'bars', 'analyser', 'sparks', 'kaleido'], palette: 'arc', pace: 1 },
     { id: 'latino', name: 'Latino et tropical', short: 'Tropical', desc: 'Rose, orange et turquoise sur la piste de danse.', scenes: ['floor', 'beams', 'sparks', 'disco', 'waves', 'aurora'], palette: 'tropical', pace: 0.9 },
     { id: 'rock', name: 'Rock et concert', short: 'Concert', desc: 'Projecteurs de scène et étincelles couleur feu.', scenes: ['beams', 'lasers', 'sparks', 'bars', 'tunnel', 'ambiance'], palette: 'feu', pace: 0.85 },
-    { id: 'mariage', name: 'Mariage et soirée chic', short: 'Chic', desc: 'Or et rose, boule à facettes, fondus lents.', scenes: ['disco', 'beams', 'sparks', 'kaleido', 'valentine', 'aurora'], palette: 'or', pace: 1.3, fade: 1.6 },
-    { id: 'lounge', name: 'Apéro et lounge', short: 'Lounge', desc: 'Lumières douces qui respirent avec la musique.', scenes: ['aurora', 'ambiance', 'waves', 'plasma', 'kaleido'], palette: 'ocean', pace: 1.8, fade: 2 },
+    { id: 'mariage', name: 'Mariage et soirée chic', short: 'Chic', desc: 'Or et rose, boule à facettes, fondus lents.', scenes: ['disco', 'beams', 'sparks', 'kaleido', 'valentine', 'tile', 'aurora'], palette: 'or', pace: 1.3, fade: 1.6, tile: { rhythm: 'fade' } },
+    { id: 'lounge', name: 'Apéro et lounge', short: 'Lounge', desc: 'Lumières douces qui respirent avec la musique.', scenes: ['aurora', 'ambiance', 'tile', 'waves', 'plasma', 'kaleido'], palette: 'ocean', pace: 1.8, fade: 2, tile: { rhythm: 'fade' } },
     { id: 'kids', name: 'Boum des enfants', short: 'Boum', desc: 'Couleurs vives, ballons et étincelles, sans éclairs.', scenes: ['sparks', 'bars', 'floor', 'disco', 'birthday', 'easter'], palette: 'arc', pace: 1 },
     { id: 'retro', name: 'Rétro Winamp', short: 'Rétro', desc: 'Oscillo, analyseur et plasma façon années 2000.', scenes: ['scope', 'analyser', 'psyche', 'plasma', 'bars'], palette: 'arc', pace: 1 },
     { id: 'halloween', name: 'Halloween', desc: 'Citrouilles et fantômes, lasers orange et violets.', home: 'halloween', scenes: ['lasers', 'tunnel', 'sparks', 'sheet', 'aurora'], palette: 'citrouille', pace: 0.9 },
@@ -2288,7 +2387,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     return null;
   }
   // scenes in the Auto rotation: everything except Ambiance and MilkDrop by default, remembered per device
-  let autoSet = new Set(ORDER.filter((id) => id !== 'ambiance'));
+  let autoSet = new Set(ORDER.filter((id) => id !== 'ambiance' && id !== 'tile'));
   try { const saved = JSON.parse(localStorage.getItem('jdl.autoSet') || 'null'); if (Array.isArray(saved)) autoSet = new Set(saved.filter((id) => ORDER.includes(id))); } catch (e) {}
   (function buildPicker() {
     const root = $('scenePicks');
@@ -2368,7 +2467,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     if (name === 'tunnel') rings.length = 0;
     if (name === 'sparks') sparks.length = 0;
     const md = name === 'milkdrop';
-    mdCv.hidden = !md; cv.hidden = md; $('bPreset').hidden = !md;
+    mdCv.hidden = !md; cv.hidden = md; $('bPreset').hidden = !md; $('bTile').hidden = name !== 'tile';
     if (ORDER.includes(name)) lastIn[CALM.includes(name) ? 'calm' : 'loud'] = name;
     remoteTell({ t: 'scene', current: name, sel, dur });
     if (RC.role === 'screen' && !RC.follower) hubSend({ t: 'scene', current: name, sel, dur });
@@ -2623,6 +2722,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     if (!optsEl.hidden) { if (k === 'escape') closeOpts(); return; }
     if (!palEl.hidden) { if (k === 'escape') closePal(); return; }
     if (!installEl.hidden) { if (k === 'escape') closeInstall(); return; }
+    if (!tileEl.hidden) { if (k === 'escape') closeTile(); return; }
     if (e.target instanceof HTMLInputElement && /^(text|time)$/.test(e.target.type)) return; // typing is not a shortcut
     const onControl = e.target instanceof Element && e.target.closest('button,input');
     if (k === ' ' && !onControl) { e.preventDefault(); togglePause(); }
@@ -2843,8 +2943,36 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     remoteSync();
     if (RC.role === 'screen' && !RC.follower) sendPlaces();
   });
+  const tileEl = $('tileSheet');
+  try { const t = JSON.parse(store.get('tile') || 'null'); if (t) setTile(t, false); } catch (e) {}
+  function setTile(t, sync = true) {
+    if (['pulse', 'jump', 'fade'].includes(t.rhythm)) TILE.rhythm = t.rhythm;
+    if ([1, 2, 4].includes(Number(t.every))) TILE.every = Number(t.every);
+    if (['palette', 'fixed'].includes(t.colors)) TILE.colors = t.colors;
+    if (/^#[0-9a-f]{6}$/i.test(t.fixed || '')) TILE.fixed = t.fixed;
+    if (['same', 'each', 'chase'].includes(t.multi)) TILE.multi = t.multi;
+    tileEl.querySelectorAll('[data-rhythm]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.rhythm === TILE.rhythm)));
+    $('tileEveryBox').hidden = TILE.rhythm !== 'jump';
+    $('tileEvery').value = String(TILE.every); $('tileColors').value = TILE.colors; $('tileFixed').value = TILE.fixed; $('tileMulti').value = TILE.multi;
+    $('tileFixedBox').hidden = TILE.colors !== 'fixed';
+    store.set('tile', JSON.stringify(TILE));
+    if (sync) remoteSync();
+  }
+  setTile({}, false);
+  tileEl.addEventListener('click', (e) => {
+    if (e.target === tileEl) { closeTile(); return; }
+    const b = e.target.closest('[data-rhythm]'); if (b) setTile({ rhythm: b.dataset.rhythm });
+  });
+  $('tileEvery').addEventListener('change', () => setTile({ every: $('tileEvery').value }));
+  $('tileColors').addEventListener('change', () => setTile({ colors: $('tileColors').value }));
+  $('tileFixed').addEventListener('input', () => setTile({ fixed: $('tileFixed').value }));
+  $('tileMulti').addEventListener('change', () => setTile({ multi: $('tileMulti').value }));
+  function openTile() { setTile({}, false); tileEl.hidden = false; $('tileClose').focus(); wake(); }
+  function closeTile() { tileEl.hidden = true; wake(); }
+  $('tileClose').addEventListener('click', closeTile);
+  $('bTile').addEventListener('click', openTile);
   function multiTick(dt) {
-    if (S.beatFlag) MS.k++;
+    if (S.beatFlag && !(RC.follower && performance.now() - (MS.kAt || 0) < 1000)) MS.k++;   // an extra screen takes the main screen's count
     const target = MS.on && MS.n > 1 ? (MS.i * 360 / MS.n) + MS.k * 30 : 0;
     const d = ((target - MS.off) % 360 + 540) % 360 - 180;   // shortest way round
     MS.off = Math.abs(d) < 0.5 ? target % 360 : (MS.off + d * (1 - Math.exp(-dt * 6))) % 360;
@@ -2993,7 +3121,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     return c;
   }
   function stateForRemote() {
-    return { sel, pack: pack.id, palette: pal.id, mine: MINE.cols || null, tone: Object.assign({}, TONE), multiHue: MS.on, autoSet: [...autoSet], opt: { text: OPT.text, mode: OPT.mode, cd: OPT.cd, strobe: OPT.strobe, guests: GU.on, guestQr: GU.qr, phoneFx } };
+    return { sel, pack: pack.id, palette: pal.id, mine: MINE.cols || null, tone: Object.assign({}, TONE), multiHue: MS.on, tile: Object.assign({}, TILE), autoSet: [...autoSet], opt: { text: OPT.text, mode: OPT.mode, cd: OPT.cd, strobe: OPT.strobe, guests: GU.on, guestQr: GU.qr, phoneFx } };
   }
   function setBadge(text) { remoteBadge.hidden = !text; remoteBadge.textContent = text || ''; }
   function rcReset() {
@@ -3025,6 +3153,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     if (typeof m.sel === 'string' && (m.sel === 'auto' || SCENE_NAMES[m.sel])) { sel = m.sel; markScene(); }
     if (typeof m.pack === 'string' && PACK_BY_ID[m.pack]) setPack(m.pack, { quiet: true, keepPalette: true });
     if (Array.isArray(m.mine)) loadMine(m.mine);
+    if (m.tile && typeof m.tile === 'object') setTile(m.tile, false);
     if (typeof m.multiHue === 'boolean' && m.multiHue !== MS.on) {
       MS.on = m.multiHue; $('multiHue').checked = MS.on; MS.k = 0;
       if (RC.role === 'screen' && !RC.follower) sendPlaces();
@@ -3050,6 +3179,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     if (m.t === 'f') {
       if (!Array.isArray(m.ts) || m.ts.length !== NB || !Array.isArray(m.wv) || m.wv.length !== 64) return;
       REM.frame = m; REM.at = performance.now(); if (m.beat) REM.beat = true;
+      if (RC.follower && typeof m.k === 'number') { MS.k = m.k | 0; MS.kAt = REM.at; }
       return;
     }
     RC.applying = true;
@@ -3058,7 +3188,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
       else if (m.t === 'guestClear') clearGuests();
       else if (m.t === 'idx' && RC.follower) {
         MS.i = Math.max(0, Math.min(15, m.i | 0)); MS.n = Math.max(1, Math.min(16, m.n | 0));
-        if (typeof m.k === 'number' && Math.abs(m.k - MS.k) > 1) MS.k = m.k | 0;   // keep in step with the main screen
+        if (typeof m.k === 'number' && performance.now() - (MS.kAt || 0) > 2000) MS.k = m.k | 0;   // no music frames from the main screen (iPhone app): keep in step this way
         if (typeof m.on === 'boolean') MS.on = m.on;
       }
       else if (m.t === 'scene') {
@@ -3127,6 +3257,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
       });
       conn.on('data', (m) => {
         onRemoteMessage(m);
+        if (m && m.t === 'f') m.k = MS.k;   // our beat count travels with the music, so every screen counts the same
         if (m && (m.t === 'f' || m.t === 'state' || m.t === 'guestClear')) hubSend(m); // the other screens get the phone's music and settings
       });
       conn.on('close', () => {
@@ -3461,6 +3592,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     if (!live) return 'idle';
     if (now - lightDropAt < 1500) return 'drop';
     if (phoneFx !== 'auto') return phoneFx;
+    if (current === 'tile') return 'tile';
     if (calmMode) return SLOW_PACKS.includes(pack.id) ? 'lighter' : 'calm';
     return PHONE_FX[current] || 'pulse';
   }
@@ -3481,6 +3613,11 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
       lv: Math.round(Math.min(1, S.loud ?? S.level) * 100) / 100, b: S.beats, bpm: live ? tempo() : 0,
       ago: Math.round(now - LC.beatAt), m: mode
     };
+    if (mode === 'tile' && TL.cols.length) {
+      // the tile's colours, which one the main screen shows, and how several displays share them
+      msg.cs = TL.cols.slice(0, 8).map((c) => c.map((x) => Math.round(x)));
+      msg.ci = TL.idx; msg.mu = TILE.multi; msg.rh = tileRhythm().rhythm || TILE.rhythm;
+    }
     try { c.publish(mqTopic(GU.code) + '/l', JSON.stringify(msg)); } catch (e) {}
   }
   setInterval(() => {
@@ -3590,6 +3727,19 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
       } else if (m === 'rainbow') {
         // each phone its own colour, all turning a step on every beat
         bg = hsl(q.h + slot * 90 + k * 30, 95, 18 + 26 * lv + 22 * fl);
+      } else if (m === 'tile' && Array.isArray(q.cs) && q.cs.length) {
+        // plain colour like the TV's tile: each phone its own colour, or a chase across the phones
+        const N = q.cs.length;
+        const idx = q.mu === 'each' ? (q.ci + slot + 1) % N : q.ci % N;
+        const t = q.cs[idx] || q.cs[0];
+        if (!L.tc) L.tc = t.slice();
+        const rate = q.rh === 'jump' ? 60 : q.rh === 'fade' ? 0.6 : 3;
+        for (let c = 0; c < 3; c++) L.tc[c] += (t[c] - L.tc[c]) * (1 - Math.exp(-dt * rate));
+        let b = q.rh === 'pulse' ? 0.3 + 0.5 * lv + 0.3 * fl : q.rh === 'jump' ? 0.75 + 0.15 * lv + 0.15 * fl : 0.5 + 0.1 * Math.sin(now / 1100) + 0.25 * lv;
+        if (q.mu === 'chase') b *= ((k % 4) + 4) % 4 === slot ? 1 : 0.07;
+        b = Math.min(1, b);
+        bg = `rgb(${Math.round(L.tc[0] * b)},${Math.round(L.tc[1] * b)},${Math.round(L.tc[2] * b)})`;
+        lit = false;
       } else if (m === 'eq') {
         // a level meter filling the screen from the bottom, with a peak marker
         const top = Math.round(Math.min(100, (0.06 + Math.pow(lv, 1.8) * 0.86 + fl * 0.1) * 100));
