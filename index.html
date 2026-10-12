@@ -171,6 +171,39 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
 .code { margin: 2px 0 6px; font: 700 34px/1 var(--f-mono); letter-spacing: 0.18em; color: #fff; }
 #remoteCode { text-transform: uppercase; letter-spacing: 0.15em; font-family: var(--f-mono); }
 
+
+/* simplified controls: one bar, choices in panels */
+.bar { gap: 8px; }
+.choices { display: grid; gap: 10px; margin-top: 12px; }
+.choice {
+  display: grid; gap: 4px; justify-items: start; text-align: left;
+  min-height: 64px; padding: 12px 16px; text-transform: none; letter-spacing: 0;
+  font: 400 14px/1.35 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+.choice b { font-size: 16px; font-weight: 600; color: var(--ink); }
+.choice span { color: var(--dim); }
+.choice[aria-pressed="true"] span { color: #2a0b18; }
+.choice[aria-pressed="true"] b { color: #14060d; }
+.link {
+  margin-top: 14px; min-height: 36px; padding: 0; background: none; border: none;
+  color: var(--dim); text-decoration: underline; text-transform: none; letter-spacing: 0;
+  font: 14px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+.welcome {
+  position: fixed; inset: 0; z-index: 6; display: grid; place-items: center;
+  padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  background: rgba(7, 6, 14, 0.82);
+}
+.welcome-card {
+  box-sizing: border-box; width: min(560px, 100%); max-height: 100%; overflow-y: auto;
+  display: grid; justify-items: stretch;
+  padding: 24px; background: #110e20; border: 1px solid var(--line); border-radius: 14px;
+}
+.welcome-card h2 { margin: 0; font: 700 24px/1.15 var(--f-display); text-wrap: balance; }
+.welcome .lead { margin: 16px 0 0; font: 500 18px/1.3 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; color: var(--ink); }
+.welcome .link { justify-self: start; }
+#moreSheet .slider { margin-top: 4px; }
 /* scene picker */
 .scene-name { min-width: 15ch; max-width: 60vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .picks { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 6px; }
@@ -231,19 +264,10 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
   <div class="note" id="note" role="status" aria-live="polite" hidden></div>
 
   <section class="hud deck" aria-label="Commandes">
-    <div class="row">
-      <div class="group" role="group" aria-label="Source du son">
-        <button type="button" id="bDemo" aria-pressed="false">Démo</button>
-        <button type="button" id="bFile" aria-pressed="false">Mes fichiers</button>
-        <button type="button" id="bMic" aria-pressed="false">Micro</button>
-        <button type="button" id="bTab" aria-pressed="false">Audio écran</button>
-      </div>
-      <div class="group" role="group" aria-label="Lecture">
-        <button type="button" id="bPlay" hidden>Pause</button>
-        <button type="button" id="bNext" hidden>Suivant</button>
-      </div>
-    </div>
-    <div class="row">
+    <div class="row bar">
+      <button type="button" id="bSource" class="primary" aria-haspopup="dialog">Choisir le son</button>
+      <button type="button" id="bPlay" hidden>Pause</button>
+      <button type="button" id="bNext" hidden>Suivant</button>
       <div class="group" role="group" aria-label="Scène">
         <button type="button" id="bPrevScene" aria-label="Scène précédente">◀</button>
         <button type="button" id="bScenes" class="scene-name" aria-haspopup="dialog">Auto · Projecteurs</button>
@@ -251,21 +275,88 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
         <button type="button" data-scene="auto" aria-pressed="true">Auto</button>
         <button type="button" id="bPreset" hidden>Effet suivant</button>
       </div>
+      <button type="button" id="bPal" aria-label="Changer la palette de couleurs">Couleurs : Arc-en-ciel</button>
+      <button type="button" id="bMore" aria-haspopup="dialog">Plus</button>
     </div>
-    <div class="row">
-      <button type="button" id="bParty" class="primary" aria-pressed="false">Mode soirée</button>
+  </section>
+
+  <div class="sheet" id="srcSheet" role="dialog" aria-modal="true" aria-labelledby="srcTitle" hidden>
+    <div class="sheet-card">
+      <div class="sheet-head">
+        <h2 id="srcTitle">D’où vient la musique ?</h2>
+        <button type="button" id="srcClose" aria-label="Fermer">Fermer</button>
+      </div>
+      <div class="choices">
+        <button type="button" id="bMic" class="choice" aria-pressed="false"><b>Elle passe dans la pièce</b><span>Enceinte, TV ou autre téléphone : on l’écoute avec le micro.</span></button>
+        <button type="button" id="bTab" class="choice" aria-pressed="false"><b>De cet ordinateur</b><span>Spotify, Deezer ou YouTube dans un onglet : on capte le son directement.</span></button>
+        <button type="button" id="bFile" class="choice" aria-pressed="false"><b>De mes fichiers</b><span>MP3, WAV ou M4A de cet appareil.</span></button>
+        <button type="button" id="bDemo" class="choice" aria-pressed="false"><b>Juste essayer</b><span>Un morceau de démonstration.</span></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="sheet" id="moreSheet" role="dialog" aria-modal="true" aria-labelledby="moreTitle" hidden>
+    <div class="sheet-card">
+      <div class="sheet-head">
+        <h2 id="moreTitle">Plus de réglages</h2>
+        <button type="button" id="moreClose" aria-label="Fermer">Fermer</button>
+      </div>
+      <h3>Soirée</h3>
+      <div class="fields">
+        <button type="button" id="bParty" class="primary" aria-pressed="false">Mode soirée</button>
+        <button type="button" id="bFull">Plein écran</button>
+        <button type="button" id="bOpts">Message, compte à rebours, flashs</button>
+      </div>
+      <h3>Son</h3>
       <label class="slider" for="gain">Sensibilité
         <input id="gain" type="range" min="50" max="200" value="100">
       </label>
-      <button type="button" id="bPal" aria-label="Changer la palette de couleurs">Couleurs : Arc-en-ciel</button>
-      <button type="button" id="bFull">Plein écran</button>
-      <button type="button" id="bCastTV" class="primary" hidden>Caster</button>
-      <button type="button" id="bCast" class="primary">Sur la TV</button>
-      <button type="button" id="bRemote">Télécommande</button>
-      <button type="button" id="bOpts">Options</button>
-      <button type="button" id="bSave" hidden>Version autonome</button>
+      <h3>Télévision</h3>
+      <div class="fields">
+        <button type="button" id="bCastTV" class="primary" hidden>Caster sur Chromecast</button>
+        <button type="button" id="bRemote">Télécommande (2 appareils)</button>
+        <button type="button" id="bCast">Aide : afficher sur la TV</button>
+      </div>
+      <h3>Application</h3>
+      <div class="fields">
+        <button type="button" id="bWelcome">Revoir l’accueil</button>
+        <button type="button" id="bSave" hidden>Version autonome</button>
+      </div>
     </div>
-  </section>
+  </div>
+
+  <div class="welcome" id="welcome" role="dialog" aria-modal="true" aria-labelledby="wTitle" hidden>
+    <div class="welcome-card">
+      <h2 id="wTitle">Jeux de lumière</h2>
+      <div class="wstep" data-step="where">
+        <p class="lead">Où voulez-vous les lumières ?</p>
+        <div class="choices">
+          <button type="button" class="choice" data-where="here"><b>Sur cet écran</b><span>Ce téléphone, cette tablette ou cet ordinateur, branché ou recopié sur la TV.</span></button>
+          <button type="button" class="choice" data-where="cast" hidden><b>Sur la TV, avec Chromecast</b><span>Les lumières partent sur le Chromecast ; cet appareil devient la télécommande.</span></button>
+          <button type="button" class="choice" data-where="pair"><b>Sur la TV, avec un 2e appareil</b><span>Une tablette ou un ordinateur branché à la TV affiche ; le téléphone écoute et pilote.</span></button>
+        </div>
+      </div>
+      <div class="wstep" data-step="sound" hidden>
+        <p class="lead">D’où vient la musique ?</p>
+        <div class="choices">
+          <button type="button" class="choice" data-sound="mic"><b>Elle passe dans la pièce</b><span>Enceinte, TV ou autre téléphone : on l’écoute avec le micro.</span></button>
+          <button type="button" class="choice" data-sound="tab" hidden><b>De cet ordinateur</b><span>Spotify, Deezer ou YouTube dans un onglet : on capte le son directement.</span></button>
+          <button type="button" class="choice" data-sound="file"><b>De mes fichiers</b><span>MP3, WAV ou M4A de cet appareil.</span></button>
+          <button type="button" class="choice" data-sound="demo"><b>Juste essayer</b><span>Un morceau de démonstration.</span></button>
+        </div>
+        <button type="button" class="link" data-back>Retour</button>
+      </div>
+      <div class="wstep" data-step="pair" hidden>
+        <p class="lead">Sur quel appareil êtes-vous ?</p>
+        <div class="choices">
+          <button type="button" class="choice" data-pair="screen"><b>Celui branché à la TV</b><span>Il affiche les lumières et un QR code à scanner avec le téléphone.</span></button>
+          <button type="button" class="choice" data-pair="phone"><b>Le téléphone</b><span>Scannez le QR code affiché sur la TV, ou tapez son code.</span></button>
+        </div>
+        <button type="button" class="link" data-back>Retour</button>
+      </div>
+      <button type="button" class="link" id="wSkip">Passer, je règle moi-même</button>
+    </div>
+  </div>
   <input type="file" id="fileIn" accept="audio/*" multiple hidden>
 
   <div class="sheet" id="remoteSheet" role="dialog" aria-modal="true" aria-labelledby="remoteTitle" hidden>
@@ -2113,6 +2204,8 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     bPlay.hidden = A.mode === 'idle' || A.mode === 'remote';
     bPlay.textContent = A.paused ? 'Reprendre' : 'Pause';
     bNext.hidden = !(A.mode === 'file' && F.list.length > 1);
+    $('bSource').textContent = { idle: 'Choisir le son', mic: 'Son : micro', tab: 'Son : ordinateur', file: 'Son : fichiers',
+      demo: 'Son : démo', remote: 'Son : télécommande' }[A.mode] || 'Choisir le son';
   }
 
   let noteT = 0;
@@ -2165,6 +2258,9 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     if (!castEl.hidden) { if (k === 'escape') closeCast(); return; }
     if (!scenesEl.hidden) { if (k === 'escape') closeScenes(); return; }
     if (!remoteEl.hidden) { if (k === 'escape') closeRemote(); return; }
+    if (!welEl.hidden) { if (k === 'escape') closeWelcome(); return; }
+    if (!srcEl.hidden) { if (k === 'escape') closeSheet(srcEl); return; }
+    if (!moreEl.hidden) { if (k === 'escape') closeSheet(moreEl); return; }
     if (!optsEl.hidden) { if (k === 'escape') closeOpts(); return; }
     if (e.target instanceof HTMLInputElement && /^(text|time)$/.test(e.target.type)) return; // typing is not a shortcut
     const onControl = e.target instanceof Element && e.target.closest('button,input');
@@ -2595,7 +2691,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
   $('bRemote').addEventListener('click', openRemote);
   $('remoteClose').addEventListener('click', closeRemote);
   remoteEl.addEventListener('click', (e) => { if (e.target === remoteEl) closeRemote(); });
-  $('bBeScreen').addEventListener('click', beScreen);
+  $('bBeScreen').addEventListener('click', () => beScreen());
   $('bConnect').addEventListener('click', () => connectTo($('remoteCode').value));
   $('remoteCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') connectTo($('remoteCode').value); });
   $('bRemoteMic').addEventListener('click', async () => { await startMic(); if (A.mode === 'mic') $('bRemoteMic').hidden = true; });
@@ -2623,7 +2719,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     let pc;
     try { pc = await new PresentationRequest([location.origin + location.pathname + '?ecran=' + code]).start(); }
     catch (e) {
-      if (!e || e.name !== 'NotAllowedError') note('Aucun écran de diffusion trouvé. Vérifiez que le Chromecast ou la TV est sur le même Wi-Fi, ou touchez « Sur la TV » pour les autres méthodes.');
+      if (!e || e.name !== 'NotAllowedError') note('Aucun écran de diffusion trouvé. Vérifiez que le Chromecast ou la TV est sur le même Wi-Fi, ou voyez Plus › « Aide : afficher sur la TV ».');
       return;
     }
     rcReset(); RC.role = 'remote'; RC.code = code;
@@ -2681,6 +2777,61 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
       list.onconnectionavailable = (e) => attach(e.connection);
     }).catch(() => {});
   }
+
+  /* ---------- simplified controls: sound panel and "Plus" panel ---------- */
+  const srcEl = $('srcSheet'), moreEl = $('moreSheet');
+  function openSheet(el) { el.hidden = false; const b = el.querySelector('button'); if (b) b.focus(); wake(); }
+  function closeSheet(el) { el.hidden = true; wake(); }
+  $('bSource').addEventListener('click', () => openSheet(srcEl));
+  $('bMore').addEventListener('click', () => openSheet(moreEl));
+  $('srcClose').addEventListener('click', () => closeSheet(srcEl));
+  $('moreClose').addEventListener('click', () => closeSheet(moreEl));
+  // a choice in a panel does its job (its own handler runs first), then the panel closes
+  srcEl.addEventListener('click', (e) => { if (e.target === srcEl || e.target.closest('.choice')) closeSheet(srcEl); });
+  moreEl.addEventListener('click', (e) => {
+    if (e.target === moreEl) { closeSheet(moreEl); return; }
+    const b = e.target.closest('button');
+    if (b && b.id !== 'moreClose' && b.id !== 'bFull') closeSheet(moreEl);
+  });
+
+  /* ---------- welcome: two questions, then the party starts ---------- */
+  const welEl = $('welcome');
+  function wStep(name) { welEl.querySelectorAll('.wstep').forEach((st) => { st.hidden = st.dataset.step !== name; }); }
+  function openWelcome() {
+    welEl.querySelector('[data-where="cast"]').hidden = bCastTV.hidden;
+    welEl.querySelector('[data-sound="tab"]').hidden = bTab.hidden;
+    wStep('where'); welEl.hidden = false; welEl.querySelector('.choice').focus(); wake();
+  }
+  function closeWelcome() { welEl.hidden = true; store.set('welcomed', '1'); wake(); }
+  function startParty(sound) {
+    chooseScene('auto');
+    setParty(true);
+    // fullscreen has to be asked inside the tap; the file picker and screen sharing need that tap themselves
+    const el = document.documentElement;
+    if ((sound === 'mic' || sound === 'demo') && el.requestFullscreen && !document.fullscreenElement) {
+      el.requestFullscreen().then(() => { fsByParty = true; }).catch(() => {});
+    }
+    holdAwake();
+    if (sound === 'mic') startMic();
+    else if (sound === 'tab') startTab();
+    else if (sound === 'file') { ensureCtx(); fileIn.click(); }
+    else startDemo();
+  }
+  welEl.addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.id === 'wSkip') { closeWelcome(); return; }
+    if (b.hasAttribute('data-back')) { wStep('where'); return; }
+    const { where, sound, pair } = b.dataset;
+    if (where === 'here') wStep('sound');
+    else if (where === 'pair') wStep('pair');
+    else if (where === 'cast') { closeWelcome(); bCastTV.click(); openSheet(srcEl); }
+    else if (pair === 'screen') { closeWelcome(); openRemote(); beScreen(); }
+    else if (pair === 'phone') { closeWelcome(); openRemote(); $('remoteCode').focus(); }
+    else if (sound) { closeWelcome(); startParty(sound); }
+  });
+  $('bWelcome').addEventListener('click', openWelcome);
+  // first visit, unless this page was opened as a TV screen or from a remote's QR code
+  if (!store.get('welcomed') && !document.body.classList.contains('cast-screen') && !RC.role && remoteEl.hidden) openWelcome();
 
   const savedGain = Number(store.get('gain'));
   if (savedGain >= 50 && savedGain <= 200) { $('gain').value = String(savedGain); S.gain = savedGain / 100; }
