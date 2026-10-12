@@ -1,4 +1,7 @@
 ios/*.xcodeproj/
+ios/*.xcworkspace/
+ios/Pods/
+ios/Podfile.lock
 ios/build/
 ios/Payload/
 ios/*.ipa

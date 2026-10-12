@@ -2649,6 +2649,28 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     document.body.classList.add('cast-screen');
     beScreen(qsEcran);
   }
+  /* ---------- Chromecast receiver (Google Cast custom receiver = this page opened with ?cast=1) ----------
+     The iPhone app launches it on the Chromecast and sends the screen code through its Cast channel;
+     the analysis frames then come from the iPhone's broadcast extension through the relay, as for any screen. */
+  const CAST_NS = 'urn:x-cast:fr.jeuxdelumiere';
+  if (new URLSearchParams(location.search).has('cast') && !inFrame) {
+    document.body.classList.add('cast-screen');
+    loadScript('https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js').then(() => {
+      const castCtx = window.cast.framework.CastReceiverContext.getInstance();
+      const opts = new window.cast.framework.CastReceiverOptions();
+      opts.disableIdleTimeout = true;   // a party runs for hours
+      opts.skipPlayersLoad = true;      // no media player: we only draw
+      opts.customNamespaces = { [CAST_NS]: window.cast.framework.system.MessageType.JSON };
+      castCtx.addCustomMessageListener(CAST_NS, (e) => {
+        const d = e.data || {};
+        if (d.t === 'code') {
+          const code = String(d.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+          if (code.length === 5 && code !== RC.code) beScreen(code);
+        } else onRemoteMessage(d);
+      });
+      castCtx.start(opts);
+    }).catch(() => {});
+  }
   if (navigator.presentation && navigator.presentation.receiver) {
     navigator.presentation.receiver.connectionList.then((list) => {
       const attach = (c) => {

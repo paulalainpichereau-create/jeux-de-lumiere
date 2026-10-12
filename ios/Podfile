@@ -1,0 +1,15 @@
+platform :ios, '15.0'
+
+target 'JeuxDeLumiere' do
+  use_frameworks!
+  # Google Cast: the Cast button and the link to the Chromecast (the broadcast extension doesn't need it)
+  pod 'google-cast-sdk', '~> 4.8'
+end
+
+post_install do |installer|
+  installer.pods_project.targets.each do |t|
+    t.build_configurations.each do |c|
+      c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+    end
+  end
+end

@@ -3,6 +3,7 @@ import ReplayKit
 
 @main
 struct JeuxDeLumiereApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     var body: some Scene {
         WindowGroup { ContentView() }
     }
@@ -33,6 +34,14 @@ final class Bridge: ObservableObject {
         }
     }
 
+    /// A screen code of our own, used when casting to a Chromecast (no web screen to read it from).
+    static func ensureCode() {
+        let current = clean(UserDefaults.standard.string(forKey: "screenCode") ?? "")
+        if current.count == Signal.codeLength { return }
+        let code = String((0..<Signal.codeLength).map { _ in Signal.codeAlphabet.randomElement()! })
+        UserDefaults.standard.set(code, forKey: "screenCode")
+    }
+
     static func clean(_ raw: String) -> String {
         String(raw.uppercased().filter { Signal.codeAlphabet.contains($0) }.prefix(Signal.codeLength))
     }
@@ -59,6 +68,7 @@ struct BroadcastButton: UIViewRepresentable {
 
 struct ContentView: View {
     @ObservedObject private var b = Bridge.shared
+    @ObservedObject private var cast = CastLink.shared
     @AppStorage("screenCode") private var screenCode = ""
     @State private var flash = 0.0
     @State private var now = Date()
@@ -78,9 +88,19 @@ struct ContentView: View {
                     Text("L’écran de la TV suit la musique de Spotify ou Deezer, sans micro.")
                         .foregroundStyle(.secondary)
 
-                    step(1, "Sur l’appareil branché à la TV, ouvrez l’app web, touchez Télécommande › Cet appareil est l’écran.")
+                    step(1, "Touchez l’icône Cast et choisissez votre Chromecast ou Google TV : les lumières s’affichent sur la TV.")
+                    HStack(spacing: 12) {
+                        CastButton().frame(width: 44, height: 44)
+                            .background(Circle().fill(Color.white.opacity(0.08)))
+                        if let name = cast.deviceName {
+                            Label("Sur \(name)", systemImage: "tv.fill").foregroundStyle(.green)
+                        } else if !CastLink.configured {
+                            Text("Identifiant Cast pas encore configuré : la TV n’affichera pas les lumières (voir ios/CHROMECAST.md).")
+                                .font(.footnote).foregroundStyle(.yellow)
+                        }
+                    }
 
-                    step(2, "Tapez ici le code affiché sur l’écran :")
+                    step(2, "Sans Chromecast : sur l’appareil branché à la TV, ouvrez l’app web › Télécommande › Cet appareil est l’écran, et tapez ici son code. Avec Chromecast, ce code se remplit tout seul.")
                     TextField("K7Q2M", text: $screenCode)
                         .font(.system(size: 28, weight: .bold, design: .monospaced))
                         .textInputAutocapitalization(.characters).autocorrectionDisabled()
@@ -89,6 +109,7 @@ struct ContentView: View {
                             let c = Bridge.clean(v)
                             if c != v { screenCode = c }
                             if c.count == Signal.codeLength && b.broadcasting { b.sendCode() }
+                            if c.count == Signal.codeLength { cast.sendCode() }
                         }
 
                     step(3, "Touchez le bouton rond, puis « Commencer la diffusion ».")
@@ -109,6 +130,10 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .onAppear {
+            Bridge.ensureCode()
+            cast.code = { Bridge.clean(UserDefaults.standard.string(forKey: "screenCode") ?? "") }
+        }
         .onReceive(tick) { now = $0 }
         .onChange(of: b.beats) { _ in
             flash = 1
