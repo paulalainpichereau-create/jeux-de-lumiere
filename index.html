@@ -412,6 +412,9 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
         <label class="tone" for="toneLum"><span>Luminosité <output id="toneLumV"></output></span><input type="range" id="toneLum" min="50" max="150" step="5" value="100"></label>
       </div>
       <button type="button" id="toneReset">Remettre la tonalité d’origine</button>
+      <h3>Plusieurs écrans</h3>
+      <label class="check" for="multiHue"><input type="checkbox" id="multiHue"> Une couleur différente sur chaque écran, qui tourne au rythme de la musique</label>
+      <p class="fit">Pour une TV et une tablette (ou plus) reliées avec Plus › Télécommande › « D’autres écrans ». Chaque écran prend une autre couleur de la palette, et toutes avancent d’un cran à chaque battement. Les téléphones des invités ont le même effet : « Arc-en-ciel », dans les options des messages.</p>
     </div>
   </div>
 
@@ -720,7 +723,9 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     { id: 'champagne', name: 'Champagne', hues: [45, 210, 45, 300], pack: true }
   ];
   let pal = PALETTES[0];
-  function mapHue(h) { return mapHueFor(pal, h); }
+  // several screens: each one can take its own colour of the palette (offset), all turning a step on the beats
+  const MS = { on: false, i: 0, n: 1, k: 0, off: 0 };
+  function mapHue(h) { return mapHueFor(pal, h + MS.off); }
   function mapHueFor(pal, h) {
     if (pal.hues) {
       const n = pal.hues.length, t = ((((h % 360) + 360) % 360) / 360) * n, i = Math.floor(t) % n, f = t - Math.floor(t);
@@ -2488,6 +2493,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     mH.style.transform = 'scaleY(' + S.high.toFixed(3) + ')';
     drawOverlay(dt, now);
     lightCue(now);
+    multiTick(dt);
     checkSmoothness(now);
     requestAnimationFrame(frame);
   }
@@ -2830,6 +2836,19 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
   try { const t = JSON.parse(store.get('tone') || 'null'); if (t) { TONE.h = clamp(+t.h || 0, -180, 180); TONE.s = clamp(+t.s || 100, 30, 160); TONE.l = clamp(+t.l || 100, 50, 150); } } catch (e) {}
   [['toneHue', 'h'], ['toneSat', 's'], ['toneLum', 'l']].forEach(([id, k]) => $(id).addEventListener('input', () => { TONE[k] = Number($(id).value); applyTone(); }));
   $('toneReset').addEventListener('click', () => { TONE.h = 0; TONE.s = 100; TONE.l = 100; applyTone(); });
+  MS.on = store.get('multiHue') === '1';
+  $('multiHue').checked = MS.on;
+  $('multiHue').addEventListener('change', () => {
+    MS.on = $('multiHue').checked; store.set('multiHue', MS.on ? '1' : '0'); MS.k = 0;
+    remoteSync();
+    if (RC.role === 'screen' && !RC.follower) sendPlaces();
+  });
+  function multiTick(dt) {
+    if (S.beatFlag) MS.k++;
+    const target = MS.on && MS.n > 1 ? (MS.i * 360 / MS.n) + MS.k * 30 : 0;
+    const d = ((target - MS.off) % 360 + 540) % 360 - 180;   // shortest way round
+    MS.off = Math.abs(d) < 0.5 ? target % 360 : (MS.off + d * (1 - Math.exp(-dt * 6))) % 360;
+  }
   function openPal() { paintSwatches(); palEl.hidden = false; $('palClose').focus(); wake(); }
   function closePal() { palEl.hidden = true; bPal.focus(); wake(); }
   $('palClose').addEventListener('click', closePal);
@@ -2974,13 +2993,14 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     return c;
   }
   function stateForRemote() {
-    return { sel, pack: pack.id, palette: pal.id, mine: MINE.cols || null, tone: Object.assign({}, TONE), autoSet: [...autoSet], opt: { text: OPT.text, mode: OPT.mode, cd: OPT.cd, strobe: OPT.strobe, guests: GU.on, guestQr: GU.qr, phoneFx } };
+    return { sel, pack: pack.id, palette: pal.id, mine: MINE.cols || null, tone: Object.assign({}, TONE), multiHue: MS.on, autoSet: [...autoSet], opt: { text: OPT.text, mode: OPT.mode, cd: OPT.cd, strobe: OPT.strobe, guests: GU.on, guestQr: GU.qr, phoneFx } };
   }
   function setBadge(text) { remoteBadge.hidden = !text; remoteBadge.textContent = text || ''; }
   function rcReset() {
     try { if (RC.conn) RC.conn.close(); } catch (e) {}
     for (const c of RC.followers) { try { c.close(); } catch (e) {} }
     RC.followers.clear(); RC.follower = false; clearTimeout(RC.retryT);
+    MS.i = 0; MS.n = 1;
     $('screenExtra').hidden = true;
     try { if (RC.peer) RC.peer.destroy(); } catch (e) {}
     try { if (RC.mq) RC.mq.end(true); } catch (e) {}
@@ -3005,6 +3025,10 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     if (typeof m.sel === 'string' && (m.sel === 'auto' || SCENE_NAMES[m.sel])) { sel = m.sel; markScene(); }
     if (typeof m.pack === 'string' && PACK_BY_ID[m.pack]) setPack(m.pack, { quiet: true, keepPalette: true });
     if (Array.isArray(m.mine)) loadMine(m.mine);
+    if (typeof m.multiHue === 'boolean' && m.multiHue !== MS.on) {
+      MS.on = m.multiHue; $('multiHue').checked = MS.on; MS.k = 0;
+      if (RC.role === 'screen' && !RC.follower) sendPlaces();
+    }
     if (typeof m.palette === 'string') setPalette(m.palette);
     if (m.tone && typeof m.tone === 'object') {
       TONE.h = clamp(Number(m.tone.h) || 0, -180, 180); TONE.s = clamp(Number(m.tone.s) || 100, 30, 160); TONE.l = clamp(Number(m.tone.l) || 100, 50, 150);
@@ -3032,6 +3056,11 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     try {
       if (m.t === 'state') applyState(m);
       else if (m.t === 'guestClear') clearGuests();
+      else if (m.t === 'idx' && RC.follower) {
+        MS.i = Math.max(0, Math.min(15, m.i | 0)); MS.n = Math.max(1, Math.min(16, m.n | 0));
+        if (typeof m.k === 'number' && Math.abs(m.k - MS.k) > 1) MS.k = m.k | 0;   // keep in step with the main screen
+        if (typeof m.on === 'boolean') MS.on = m.on;
+      }
       else if (m.t === 'scene') {
         if (typeof m.sel === 'string' && (m.sel === 'auto' || SCENE_NAMES[m.sel])) { sel = m.sel; markScene(); }
         const dur = Math.min(3, Math.max(0.2, Number(m.dur) || 0.8));
@@ -3116,7 +3145,15 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     });
     peer.on('disconnected', () => { if (RC.peer === peer) { try { peer.reconnect(); } catch (e) {} } }); // keep the code reachable
   }
+  // the main screen gives every extra screen its place (0 is itself) and its beat count to stay in step
+  function sendPlaces() {
+    let i = 1; const n = RC.followers.size + 1;
+    MS.i = 0; MS.n = n;
+    for (const c of RC.followers) { try { if (c.open) c.send({ t: 'idx', i: i, n, k: MS.k, on: MS.on }); } catch (e) {} i++; }
+  }
+  setInterval(() => { if (RC.role === 'screen' && !RC.follower && RC.followers.size) sendPlaces(); }, 5000);
   function showFollowers() {
+    sendPlaces();
     const n = RC.followers.size, el = $('screenExtra');
     el.hidden = !n;
     el.textContent = n === 1 ? '+ 1 autre écran relié' : n + ' autres écrans reliés';
