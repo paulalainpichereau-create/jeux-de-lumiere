@@ -204,6 +204,12 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
 .welcome .lead { margin: 16px 0 0; font: 500 18px/1.3 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; color: var(--ink); }
 .welcome .link { justify-self: start; }
 #moreSheet .slider { margin-top: 4px; }
+/* packs */
+.packs { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; margin-bottom: 6px; }
+.packs .choice { min-height: 0; margin: 0; padding: 10px 14px; }
+.packs .choice b { font-size: 15px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.packs .choice span { font-size: 13px; }
+.tag { font: 600 11px/1 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-style: normal; letter-spacing: 0.04em; text-transform: uppercase; padding: 3px 6px; border-radius: 4px; background: #ffcf5c; color: #1a1205; }
 /* scene picker */
 .scene-name { min-width: 15ch; max-width: 60vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .picks { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 6px; }
@@ -437,10 +443,10 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
   <div class="sheet" id="scenesSheet" role="dialog" aria-modal="true" aria-labelledby="scenesTitle" hidden>
     <div class="sheet-card">
       <div class="sheet-head">
-        <h2 id="scenesTitle">Toutes les scènes</h2>
+        <h2 id="scenesTitle">Packs et scènes</h2>
         <button type="button" id="scenesClose" aria-label="Fermer">Fermer</button>
       </div>
-      <p class="fit">Touchez une scène pour l’afficher. L’étoile la met dans le mode Auto. En Auto, les scènes calmes passent quand la musique est douce.</p>
+      <p class="fit">Un pack enchaîne tout seul ses scènes et ses couleurs au rythme de la musique, avec des scènes calmes quand elle est douce. Ou touchez une seule scène ; l’étoile la met dans « Tout mélanger ».</p>
       <div id="scenePicks"></div>
     </div>
   </div>
@@ -530,10 +536,28 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     { id: 'neon', name: 'Néon', c: 255, w: 65 },
     { id: 'feu', name: 'Feu', c: 18, w: 28 },
     { id: 'ocean', name: 'Océan', c: 200, w: 38 },
-    { id: 'foret', name: 'Forêt', c: 120, w: 42 }
+    { id: 'foret', name: 'Forêt', c: 120, w: 42 },
+    // pack palettes: a few set colours, each held for most of its turn, then a quick change to the next
+    { id: 'citrouille', name: 'Citrouille', hues: [28, 275, 105], pack: true },
+    { id: 'sapin', name: 'Sapin', hues: [0, 140, 45], pack: true },
+    { id: 'or', name: 'Or et rose', hues: [42, 335], pack: true },
+    { id: 'tropical', name: 'Tropical', hues: [330, 25, 175], pack: true },
+    { id: 'coeur', name: 'Cœur', hues: [340, 5, 300], pack: true },
+    { id: 'printemps', name: 'Printemps', hues: [55, 110, 300, 195], pack: true },
+    { id: 'champagne', name: 'Champagne', hues: [45, 210, 45, 300], pack: true }
   ];
   let pal = PALETTES[0];
-  const mapHue = (h) => pal.w ? pal.c + pal.w * Math.sin(h * Math.PI / 180) : h;
+  function mapHue(h) {
+    if (pal.hues) {
+      const n = pal.hues.length, t = ((((h % 360) + 360) % 360) / 360) * n, i = Math.floor(t) % n, f = t - Math.floor(t);
+      const a = pal.hues[i], b = pal.hues[(i + 1) % n];
+      if (f < 0.78) return a;
+      const k = (f - 0.78) / 0.22, s = k * k * (3 - 2 * k);
+      const d = ((b - a + 540) % 360) - 180; // shortest way round the wheel
+      return a + d * s;
+    }
+    return pal.w ? pal.c + pal.w * Math.sin(h * Math.PI / 180) : h;
+  }
   const col = (h, s, l, a) => colRaw(mapHue(h), s, l, a);
 
   /* ---------- canvas ---------- */
@@ -2024,11 +2048,63 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
   ];
   const SCENE_NAMES = {};
   SCENE_GROUPS.forEach(([, items]) => items.forEach(([id, name]) => { SCENE_NAMES[id] = name; }));
+  // Packs: a ready-made evening. Each one has its scenes, its colours and its pace (scene length ×pace,
+  // fades ×fade). A party pack comes back to its own scene (home) between the others.
+  const PACKS = [
+    { id: 'mix', name: 'Tout mélanger', desc: 'Toutes les scènes avec une étoile, dans vos couleurs.' },
+    { id: 'club', name: 'Club électro', short: 'Club', desc: 'Lasers, nappes et chenillards en néon, changements rapides.', scenes: ['lasers', 'sheet', 'chase', 'tunnel', 'grid', 'beams', 'floor', 'aurora', 'waves'], palette: 'neon', pace: 0.7, fade: 0.6 },
+    { id: 'disco', name: 'Disco et années 80', short: 'Disco', desc: 'Boule à facettes, piste de danse et spectre arc-en-ciel.', scenes: ['disco', 'floor', 'chase', 'bars', 'analyser', 'sparks', 'kaleido'], palette: 'arc', pace: 1 },
+    { id: 'latino', name: 'Latino et tropical', short: 'Tropical', desc: 'Rose, orange et turquoise sur la piste de danse.', scenes: ['floor', 'beams', 'sparks', 'disco', 'waves', 'aurora'], palette: 'tropical', pace: 0.9 },
+    { id: 'rock', name: 'Rock et concert', short: 'Concert', desc: 'Projecteurs de scène et étincelles couleur feu.', scenes: ['beams', 'lasers', 'sparks', 'bars', 'tunnel', 'ambiance'], palette: 'feu', pace: 0.85 },
+    { id: 'mariage', name: 'Mariage et soirée chic', short: 'Chic', desc: 'Or et rose, boule à facettes, fondus lents.', scenes: ['disco', 'beams', 'sparks', 'kaleido', 'valentine', 'aurora'], palette: 'or', pace: 1.3, fade: 1.6 },
+    { id: 'lounge', name: 'Apéro et lounge', short: 'Lounge', desc: 'Lumières douces qui respirent avec la musique.', scenes: ['aurora', 'ambiance', 'waves', 'plasma', 'kaleido'], palette: 'ocean', pace: 1.8, fade: 2 },
+    { id: 'kids', name: 'Boum des enfants', short: 'Boum', desc: 'Couleurs vives, ballons et étincelles, sans éclairs.', scenes: ['sparks', 'bars', 'floor', 'disco', 'birthday', 'easter'], palette: 'arc', pace: 1 },
+    { id: 'retro', name: 'Rétro Winamp', short: 'Rétro', desc: 'Oscillo, analyseur et plasma façon années 2000.', scenes: ['scope', 'analyser', 'psyche', 'plasma', 'bars'], palette: 'arc', pace: 1 },
+    { id: 'halloween', name: 'Halloween', desc: 'Citrouilles et fantômes, lasers orange et violets.', home: 'halloween', scenes: ['lasers', 'tunnel', 'sparks', 'sheet', 'aurora'], palette: 'citrouille', pace: 0.9 },
+    { id: 'noel', name: 'Noël', desc: 'Sapin et flocons, étincelles rouges, vertes et or.', home: 'xmas', scenes: ['sparks', 'disco', 'beams', 'aurora'], palette: 'sapin', pace: 1.1 },
+    { id: 'nouvelan', name: 'Nouvel An', desc: 'Feux d’artifice, champagne et boule à facettes.', home: 'newyear', scenes: ['disco', 'sparks', 'beams', 'lasers'], palette: 'champagne', pace: 0.9 },
+    { id: 'valentin', name: 'Saint-Valentin', desc: 'Cœurs et lumières roses, tout en douceur.', home: 'valentine', scenes: ['kaleido', 'disco', 'aurora', 'sparks'], palette: 'coeur', pace: 1.3, fade: 1.5 },
+    { id: 'paques', name: 'Pâques', desc: 'Œufs, fleurs et couleurs de printemps.', home: 'easter', scenes: ['aurora', 'waves', 'kaleido', 'sparks'], palette: 'printemps', pace: 1.2 },
+    { id: 'anniv', name: 'Anniversaire', desc: 'Ballons et confettis entre deux scènes de fête.', home: 'birthday', scenes: ['disco', 'sparks', 'floor', 'bars'], palette: 'arc', pace: 1 }
+  ];
+  const PACK_BY_ID = {};
+  PACKS.forEach((p) => { PACK_BY_ID[p.id] = p; });
+  let pack = PACKS[0];
+  // the party pack of the moment, offered first in the list
+  function easterDay(y) { // Gregorian computus
+    const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+    const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4;
+    const l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+    return new Date(y, Math.floor((h + l - 7 * m + 114) / 31) - 1, ((h + l - 7 * m + 114) % 31) + 1);
+  }
+  function seasonPack(now = new Date()) {
+    const m = now.getMonth() + 1, d = now.getDate();
+    if ((m === 10) || (m === 11 && d <= 2)) return 'halloween';
+    if (m === 12 && d <= 26) return 'noel';
+    if ((m === 12 && d >= 27) || (m === 1 && d <= 2)) return 'nouvelan';
+    if (m === 2 && d >= 7 && d <= 15) return 'valentin';
+    const e = easterDay(now.getFullYear()), days = (now - e) / 864e5;
+    if (days > -10 && days < 3) return 'paques';
+    return null;
+  }
   // scenes in the Auto rotation: everything except Ambiance and MilkDrop by default, remembered per device
   let autoSet = new Set(ORDER.filter((id) => id !== 'ambiance'));
   try { const saved = JSON.parse(localStorage.getItem('jdl.autoSet') || 'null'); if (Array.isArray(saved)) autoSet = new Set(saved.filter((id) => ORDER.includes(id))); } catch (e) {}
   (function buildPicker() {
     const root = $('scenePicks');
+    const ph = document.createElement('h3'); ph.textContent = 'Packs'; root.appendChild(ph);
+    const pg = document.createElement('div'); pg.className = 'packs'; pg.id = 'packPicks'; root.appendChild(pg);
+    const season = seasonPack();
+    const list = season ? [PACK_BY_ID[season], ...PACKS.filter((p) => p.id !== season)] : PACKS;
+    list.forEach((p) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'choice'; b.dataset.pack = p.id;
+      b.setAttribute('aria-pressed', 'false');
+      const t = document.createElement('b'); t.textContent = p.name;
+      if (p.id === season) { const s = document.createElement('em'); s.className = 'tag'; s.textContent = 'De saison'; t.appendChild(s); }
+      const d = document.createElement('span'); d.textContent = p.desc;
+      b.append(t, d); pg.appendChild(b);
+    });
+    const sh = document.createElement('h3'); sh.textContent = 'Une seule scène'; root.appendChild(sh);
     SCENE_GROUPS.forEach(([title, items]) => {
       const h = document.createElement('h3'); h.textContent = title; root.appendChild(h);
       const grid = document.createElement('div'); grid.className = 'picks'; root.appendChild(grid);
@@ -2057,7 +2133,27 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
   function sceneLabel() {
     const b = $('bScenes'); if (!b) return;
     const name = SCENE_NAMES[current] || '';
-    b.textContent = sel === 'auto' ? 'Auto · ' + name + (calmMode ? ' (calme)' : '') : name;
+    b.textContent = sel === 'auto' ? (pack.id === 'mix' ? 'Auto' : pack.short || pack.name) + ' · ' + name + (calmMode ? ' (calme)' : '') : name;
+  }
+  function markPack() {
+    document.querySelectorAll('[data-pack]').forEach((b) => b.setAttribute('aria-pressed', String(sel === 'auto' && b.dataset.pack === pack.id)));
+  }
+  // choosing a pack switches to Auto with its scenes and colours; 'Tout mélanger' gives back your own colours
+  function setPack(id, opts = {}) {
+    const p = PACK_BY_ID[id] || PACKS[0];
+    const was = pack;
+    pack = p;
+    store.set('pack', p.id);
+    if (!opts.keepPalette) {
+      if (p.palette) { if (was.id === 'mix') store.set('userPal', pal.id); setPalette(p.palette); }
+      else if (was.palette) setPalette(store.get('userPal') || 'arc');
+    }
+    markPack();
+    if (!opts.quiet) {
+      if (sel !== 'auto') chooseScene('auto');
+      else { sceneT = 0; cutTo(pickNext(autoPool()), 1.2); remoteSync(); }
+    }
+    sceneLabel();
   }
   // crossfade state: prevScene keeps running on layPrev while xT goes 0 → 1 over xDur seconds
   let prevScene = null, xT = 1, xDur = 1.5;
@@ -2082,6 +2178,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     store.set('scene', name);
     remoteSync();
     document.querySelectorAll('[data-scene]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.scene === sel)));
+    markPack();
     sceneLabel();
     if (name === 'auto') {
       sceneT = 0;
@@ -2097,7 +2194,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
   // when the bass comes back after a break.
   function autoPool() {
     const fav = ORDER.filter((id) => autoSet.has(id));
-    const base = fav.length ? fav : ORDER.filter((id) => !CALM.includes(id));
+    const base = pack.scenes ? pack.scenes.slice() : fav.length ? fav : ORDER.filter((id) => !CALM.includes(id));
     const calm = base.filter((id) => CALM.includes(id)), loud = base.filter((id) => !CALM.includes(id));
     if (calmMode) return calm.length ? calm : base;
     return loud.length ? loud : base;
@@ -2105,6 +2202,14 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
   // carry on from where each rotation left off, so coming back from a calm passage doesn't restart the list
   const lastIn = { calm: null, loud: null };
   function pickNext(pool) {
+    // a party pack shows its own scene every other time (but not during calm passages)
+    if (pack.home && !calmMode) {
+      if (current !== pack.home) return pack.home;
+      const ref = lastIn.loud && pool.includes(lastIn.loud) ? lastIn.loud : pool[pool.length - 1];
+      const next = pool[(pool.indexOf(ref) + 1) % pool.length];
+      lastIn.loud = next;
+      return next;
+    }
     const ref = pool.includes(current) ? current : lastIn[calmMode ? 'calm' : 'loud'];
     const next = pool[(pool.indexOf(ref) + 1) % pool.length];
     lastIn[CALM.includes(next) ? 'calm' : 'loud'] = next;
@@ -2112,7 +2217,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
   }
   function autoScene(dt) {
     const live = A.mode !== 'idle' && !A.paused;
-    if (ORDER.includes(current)) lastIn[CALM.includes(current) ? 'calm' : 'loud'] = current;
+    if (ORDER.includes(current) && current !== pack.home) lastIn[CALM.includes(current) ? 'calm' : 'loud'] = current;
     energy +=((S.loud ?? S.level) - energy) * (1 - Math.exp(-dt / 4));
     let drop = false;
     if (live) {
@@ -2132,10 +2237,11 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     if (sel !== 'auto' || (RC.role === 'screen' && RC.conn)) return; // a paired screen follows the phone's scene choices
     sceneT += dt;
     const pool = autoPool();
-    const due = (S.beats - beatsAtSwitch >= 32 && sceneT > 12) || sceneT > (calmMode ? 45 : 30);
+    const pace = pack.pace || 1, fk = pack.fade || 1;
+    const due = (S.beats - beatsAtSwitch >= Math.round(32 * pace) && sceneT > 12 * pace) || sceneT > (calmMode ? 45 : 30) * pace;
     // fades: quick on a drop, slow into and out of calm passages, 1.6 s otherwise
-    if (drop || wasCalm !== calmMode || due || (!pool.includes(current) && sceneT > 3)) {
-      cutTo(pickNext(pool), drop ? 0.35 : wasCalm !== calmMode ? 2.5 : 1.6);
+    if (drop || wasCalm !== calmMode || due || (!pool.includes(current) && current !== pack.home && sceneT > 3)) {
+      cutTo(pickNext(pool), drop ? 0.35 : wasCalm !== calmMode ? 2.5 : Math.min(3, 1.6 * fk));
     }
   }
 
@@ -2342,6 +2448,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     navigator.serviceWorker.register('sw.js').catch(() => {}); // offline + installable when hosted
   }
   const savedScene = store.get('scene');
+  setPack(store.get('pack') || 'mix', { quiet: true, keepPalette: true });
   chooseScene(savedScene && (savedScene === 'auto' || savedScene === 'milkdrop' || SCENE_FN[savedScene]) ? savedScene : 'auto');
   $('bPreset').addEventListener('click', () => nextPreset(1.5));
 
@@ -2368,6 +2475,8 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
       paintStars();
       return;
     }
+    const pk = e.target.closest('[data-pack]');
+    if (pk) { setPack(pk.dataset.pack); closeScenes(); return; }
     if (e.target.closest('[data-scene]')) closeScenes(); // the scene itself is chosen by the shared [data-scene] handler
   });
   $('bPrevScene').addEventListener('click', () => stepScene(-1));
@@ -2398,7 +2507,13 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     store.set('palette', pal.id);
     remoteSync();
   }
-  function nextPalette() { setPalette(PALETTES[(PALETTES.indexOf(pal) + 1) % PALETTES.length].id); }
+  // the Couleurs button cycles the everyday palettes, plus the current pack's own colours
+  function nextPalette() {
+    const list = PALETTES.filter((p) => !p.pack || p.id === pack.palette);
+    const next = list[(list.indexOf(pal) + 1) % list.length];
+    setPalette(next.id);
+    if (pack.id === 'mix') store.set('userPal', next.id);
+  }
   bPal.addEventListener('click', nextPalette);
   setPalette(store.get('palette'));
   setInterval(() => {
@@ -2539,7 +2654,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     return c;
   }
   function stateForRemote() {
-    return { sel, palette: pal.id, autoSet: [...autoSet], opt: { text: OPT.text, mode: OPT.mode, cd: OPT.cd, strobe: OPT.strobe } };
+    return { sel, pack: pack.id, palette: pal.id, autoSet: [...autoSet], opt: { text: OPT.text, mode: OPT.mode, cd: OPT.cd, strobe: OPT.strobe } };
   }
   function setBadge(text) { remoteBadge.hidden = !text; remoteBadge.textContent = text || ''; }
   function rcReset() {
@@ -2565,6 +2680,7 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
   }
   function applyState(m) {
     if (typeof m.sel === 'string' && (m.sel === 'auto' || SCENE_NAMES[m.sel])) { sel = m.sel; markScene(); }
+    if (typeof m.pack === 'string' && PACK_BY_ID[m.pack]) setPack(m.pack, { quiet: true, keepPalette: true });
     if (typeof m.palette === 'string') setPalette(m.palette);
     if (Array.isArray(m.autoSet)) { autoSet = new Set(m.autoSet.filter((id) => ORDER.includes(id))); paintStars(); }
     if (m.opt && typeof m.opt === 'object') {
@@ -2816,6 +2932,8 @@ input[type="range"] { width: min(180px, 40vw); accent-color: var(--accent); }
     else if (sound === 'tab') startTab();
     else if (sound === 'file') { ensureCtx(); fileIn.click(); }
     else startDemo();
+    const season = seasonPack();
+    if (season && pack.id === 'mix') setTimeout(() => note('C’est la saison : touchez le nom de la scène, en bas, pour lancer le pack ' + PACK_BY_ID[season].name + '.'), 1500);
   }
   welEl.addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
