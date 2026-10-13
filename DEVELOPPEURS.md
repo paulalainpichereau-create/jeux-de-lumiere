@@ -79,6 +79,7 @@ Du JavaScript « vanilla » dans un seul bloc, découpé en sections commentées
 ### Télécommande et écrans (PeerJS → WebRTC)
 - Chaque écran principal prend l’identifiant PeerJS `jeux-de-lumiere-<code>` sur 0.peerjs.com (le code : 5 caractères sans ambiguïté, `ABCDEFGHJKMNPQRSTUVWXYZ23456789`).
 - La télécommande s’y connecte ; un **écran en plus** qui tape le même code trouve l’identifiant pris et se connecte à son tour au hub avec `metadata: { follow: 1 }`. Le hub relaie aux écrans en plus les images de son et les réglages.
+- **Une scène par écran** : un écran avec une scène propre (`SCR.own`) ignore les messages `scene` mais garde le son, les couleurs et le reste. Le hub retient la scène commune (`SCR.common`) et la relaie même quand il affiche autre chose.
 - **Battement de cœur** : chaque liaison envoie `{t:'hb'}` toutes les 2 s ; sans nouvelles depuis 8 s, elle est fermée. Si le hub disparaît, un écran en plus reprend le code et la télécommande réessaie (6 fois, toutes les 2,5 s).
 
 Messages (JSON) :
@@ -89,6 +90,10 @@ Messages (JSON) :
 | `state` | télécommande → écrans | réglages : `sel`, `pack`, `palette`, `mine`, `tone`, `multiHue`, `tile`, `autoSet`, `opt` (message, compte à rebours, stroboscope, invités, effet des téléphones) |
 | `scene` | télécommande/hub → écrans | `current`, `sel`, `dur` (durée du fondu) |
 | `idx` | hub → écrans en plus | place de l’écran `i` sur `n`, compteur `k`, option couleurs différentes `on` |
+| `screens` | hub → télécommande | liste des écrans `[{id, own}]` (`id` : `hub` ou l’identifiant PeerJS de l’écran en plus) |
+| `assign` | télécommande → hub | `{id, scene}` : scène propre d’un écran (`''` = comme les autres, `'auto'` = son propre Auto, ou une scène) |
+| `own` | hub → écran en plus | `{scene}` : la scène propre de cet écran |
+| `ident` / `num` | télécommande → hub → écrans | afficher le numéro de chaque écran pendant 5 s |
 | `guestClear` | → écrans | effacer les messages des invités |
 | `hb` | dans les deux sens | battement de cœur |
 
@@ -142,14 +147,14 @@ Dans un autre terminal :
 
 ```bash
 cd outils
-npm run tests                       # 9 tests de bout en bout (≈ 5 min)
+npm run tests                       # 10 tests de bout en bout (≈ 6 min)
 ```
 
 - Ouvrir http://localhost:8765/ dans Chrome suffit pour travailler sur les scènes (choisir **Démo** comme son).
 - Pour utiliser les relais locaux au lieu des services publics, la page lit `window.JDL_PEER` (options PeerJS) et `window.JDL_MQTT` (adresse du relais) ; les tests les définissent avant le chargement. `outils/faux-iphone.cjs` simule l’app iPhone (même octets MQTT que `MQTTLink.swift`).
 - Le micro ne marche qu’en `https` ou sur `localhost`.
 
-Les tests (`outils/tests/`) : accueil et barre, télécommande, plusieurs écrans (dont la reprise quand l’écran principal s’éteint), app iPhone (faux iPhone), messages des invités (filtre, limite), téléphones-lumières, couleurs, dalle, packs. Leurs captures vont dans `outils/tests/captures/`.
+Les tests (`outils/tests/`) : accueil et barre, télécommande, plusieurs écrans (dont la reprise quand l’écran principal s’éteint), une scène par écran, app iPhone (faux iPhone), messages des invités (filtre, limite), téléphones-lumières, couleurs, dalle, packs. Leurs captures vont dans `outils/tests/captures/`.
 
 ## 7. Publier une modification
 

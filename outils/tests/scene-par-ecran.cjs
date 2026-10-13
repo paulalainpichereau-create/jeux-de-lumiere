@@ -1,0 +1,46 @@
+// Test de bout en bout : une scène différente par écran. Lancer d'abord « npm run serveurs » dans outils/.
+const { chromium } = require('playwright');
+const path = require('path');
+const ROOT = path.resolve(__dirname, '..', '..');
+const OUT = path.join(__dirname, 'captures');
+require('fs').mkdirSync(OUT, { recursive: true });
+(async () => {
+const b = await chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'] });
+const errs = [];
+const mk = async (name, vp, mobile) => { const c = await b.newContext({ viewport: vp, isMobile: !!mobile, hasTouch: !!mobile, permissions: ['microphone'] });
+  await c.addInitScript(() => { try { localStorage.setItem('jdl.welcomed', '1'); } catch (e) {} window.JDL_PEER = { host: '127.0.0.1', port: 9000, path: '/', secure: false, config: { iceServers: [] } }; window.JDL_MQTT = 'ws://127.0.0.1:8884/mqtt'; });
+  const p = await c.newPage(); p.on('pageerror', e => errs.push(name + ': ' + e.message));
+  await p.route(/fonts\.(googleapis|gstatic)/, r => r.abort());
+  await p.route(/cdn\.jsdelivr\.net/, r => { const u = r.request().url(); const f = u.includes('peerjs') ? 'peerjs.min.js' : u.includes('qrcode') ? 'qrcode.js' : u.includes('mqtt') ? 'mqtt.min.js' : u.includes('Presets') ? 'butterchurnPresets.min.js' : 'butterchurn.min.js'; r.fulfill({ path: ROOT + '/vendor/' + f, contentType: 'application/javascript' }); });
+  return p; };
+const lbl = (p) => p.textContent('#bScenes');
+const screens = [];
+for (let i = 0; i < 3; i++) { const s = await mk('ecran' + (i + 1), { width: 640, height: 360 }); await s.goto('http://localhost:8765/?ecran=PAREC'); await s.waitForTimeout(1500); screens.push(s); }
+const ph = await mk('telephone', { width: 390, height: 844 }, true);
+await ph.goto('http://localhost:8765/?r=PAREC');
+await ph.waitForFunction(() => document.getElementById('remoteStatus').textContent.startsWith('Connecté'), null, { timeout: 20000 });
+await ph.keyboard.press('Escape'); await ph.click('#bSource'); await ph.click('#bDemo'); await ph.waitForTimeout(1500);
+await ph.click('#bScenes');
+const rows = await ph.$$eval('#screensList .screen-row span', (s) => s.map((x) => x.textContent));
+console.log('écrans listés sur le téléphone:', rows.join(' | '), '| section visible:', await ph.$eval('#screensBox', (e) => !e.hidden));
+await ph.screenshot({ path: OUT + '/scene-par-ecran-telephone.png' });
+await ph.click('[data-scene="disco"]'); await ph.waitForTimeout(1200);
+await ph.click('#bScenes');
+const sels = await ph.$$('#screensList select');
+await sels[1].selectOption('lasers'); await ph.waitForTimeout(400);
+await sels[2].selectOption('auto'); await ph.waitForTimeout(1500);
+console.log('après choix → écran 1:', await lbl(screens[0]), '| écran 2:', await lbl(screens[1]), '| écran 3:', await lbl(screens[2]));
+await ph.click('#scenesClose');
+await ph.mouse.move(5, 5); await ph.click('#bScenes'); await ph.click('[data-scene="floor"]'); await ph.waitForTimeout(1200);
+console.log('scène commune Piste → écran 1:', await lbl(screens[0]), '| écran 2:', await lbl(screens[1]), '| écran 3:', await lbl(screens[2]));
+await ph.mouse.move(5, 5); await ph.click('#bScenes');
+await (await ph.$$('#screensList select'))[0].selectOption('tile'); await ph.waitForTimeout(1200);
+console.log('écran 1 en Dalle → écran 1:', await lbl(screens[0]), '| écran 2:', await lbl(screens[1]));
+await (await ph.$$('#screensList select'))[1].selectOption(''); await ph.waitForTimeout(1200);
+console.log('écran 2 revient « comme les autres » →', await lbl(screens[1]));
+await ph.click('#bIdent'); await ph.waitForTimeout(700);
+console.log('numéros affichés:', (await Promise.all(screens.map((s) => s.$eval('#screenNum', (e) => e.hidden ? '-' : e.textContent)))).join(' '));
+for (let i = 0; i < 3; i++) await screens[i].screenshot({ path: `${OUT}/scene-par-ecran-${i + 1}.png` });
+console.log('errors:', errs.length ? errs : 'none');
+await b.close();
+})();

@@ -33,7 +33,7 @@ Club électro, Disco, Latino, Rock, Mariage, Lounge, Boum des enfants, Rétro…
 
 **Sur la TV, de plusieurs façons**
 - Un **téléphone en télécommande** : il écoute la musique et pilote l’écran branché sur la TV (on scanne un QR code)
-- **Plusieurs écrans** en même temps, avec une couleur différente sur chaque écran si on veut
+- **Plusieurs écrans** en même temps : la même scène partout, une couleur différente sur chaque écran, ou une scène différente par écran
 - **Chromecast** et Google TV
 - **App iPhone** : les lumières suivent Spotify ou Deezer **sans micro**, en captant le son joué par le téléphone
 
