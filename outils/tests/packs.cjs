@@ -1,0 +1,56 @@
+// Test de bout en bout : packs. Lancer d'abord « npm run serveurs » dans outils/.
+const { chromium } = require('playwright');
+const path = require('path');
+const ROOT = path.resolve(__dirname, '..', '..');
+const OUT = path.join(__dirname, 'captures');
+require('fs').mkdirSync(OUT, { recursive: true });
+(async () => {
+const b = await chromium.launch({ args: ['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream','--autoplay-policy=no-user-gesture-required'] });
+const errs = [];
+const mk = async (name, vp) => { const c = await b.newContext({ viewport: vp, permissions: ['microphone'] });
+  await c.addInitScript(() => { try { localStorage.setItem('jdl.welcomed', '1'); } catch (e) {} window.JDL_PEER = { host: '127.0.0.1', port: 9000, path: '/', secure: false, config: { iceServers: [] } }; window.JDL_MQTT = 'ws://127.0.0.1:8884/mqtt'; });
+  const p = await c.newPage(); p.on('pageerror', e => errs.push(name + ': ' + e.message));
+  await p.route(/fonts\.(googleapis|gstatic)/, r => r.abort());
+  await p.route(/cdn\.jsdelivr\.net/, r => { const u = r.request().url(); const f = u.includes('peerjs') ? 'peerjs.min.js' : u.includes('qrcode') ? 'qrcode.js' : u.includes('mqtt') ? 'mqtt.min.js' : u.includes('Presets') ? 'butterchurnPresets.min.js' : 'butterchurn.min.js'; r.fulfill({ path: ROOT + '/vendor/' + f, contentType: 'application/javascript' }); });
+  return p; };
+const lbl = (p) => p.textContent('#bScenes');
+const ph = await mk('phone', { width: 390, height: 844 });
+await ph.goto('http://localhost:8765/');
+await ph.click('#bSource'); await ph.click('#bDemo'); await ph.waitForTimeout(1500);
+await ph.click('#bPal'); await ph.click('[data-pal="neon"]'); await ph.click('#palClose'); const userPal = await ph.textContent('#bPal');
+await ph.click('#bScenes');
+const packs = await ph.$$eval('[data-pack]', bs => bs.map(b => b.dataset.pack + (b.querySelector('.tag') ? '*' : '')));
+console.log('packs:', packs.length, packs.join(' '));
+await ph.screenshot({ path: OUT + '/packs-phone.png' });
+const sw = await ph.evaluate(() => document.documentElement.scrollWidth);
+await ph.click('[data-pack="halloween"]'); await ph.waitForTimeout(800);
+console.log('halloween: label', await lbl(ph), '|', await ph.textContent('#bPal'), '| sheet closed', await ph.$eval('#scenesSheet', e => e.hidden), '| scroll', sw);
+const seen = new Set();
+for (let i = 0; i < 40; i++) { await ph.waitForTimeout(1000); seen.add((await lbl(ph)).replace(/ \(calme\)/, '')); }
+console.log('halloween rotation 40s:', [...seen].join(' / ')); await ph.mouse.move(100,300); await ph.mouse.move(120,320); await ph.waitForTimeout(400);
+await ph.click('#bScenes'); await ph.click('[data-pack="lounge"]'); await ph.waitForTimeout(500);
+console.log('lounge:', await lbl(ph), '|', await ph.textContent('#bPal'));
+await ph.click('#bPal'); await ph.click('[data-pal="arc"]'); await ph.click('#palClose');
+console.log('palette cycle in lounge:', await ph.textContent('#bPal'));
+await ph.click('#bScenes'); await ph.click('[data-pack="mix"]'); await ph.waitForTimeout(500);
+console.log('mix:', await lbl(ph), '| palette back to', await ph.textContent('#bPal'), '(user had', userPal + ')');
+await ph.click('#bScenes'); await ph.click('[data-pack="noel"]'); await ph.waitForTimeout(600);
+await ph.reload(); await ph.waitForTimeout(800);
+console.log('after reload:', await lbl(ph), '|', await ph.textContent('#bPal'));
+// remote: phone picks a pack, TV follows
+const tv = await mk('tv', { width: 1280, height: 720 });
+await tv.goto('http://localhost:8765/?ecran=P4CKS'); await tv.waitForTimeout(2000);
+const rp = await mk('remote', { width: 390, height: 844 });
+await rp.goto('http://localhost:8765/?r=P4CKS');
+await rp.waitForFunction(() => document.getElementById('remoteStatus').textContent.startsWith('Connecté'), null, { timeout: 20000 });
+await rp.keyboard.press('Escape'); await rp.click('#bSource'); await rp.click('#bDemo'); await rp.waitForTimeout(1000);
+await rp.click('#bScenes'); await rp.click('[data-pack="disco"]'); await rp.waitForTimeout(1500);
+console.log('remote:', await lbl(rp), '| tv:', await lbl(tv), '|', await tv.textContent('#bPal'));
+await rp.click('#bScenes'); await rp.click('[data-pack="halloween"]'); await rp.waitForTimeout(2500);
+console.log('remote:', await lbl(rp), '| tv:', await lbl(tv), '|', await tv.textContent('#bPal'));
+await tv.screenshot({ path: OUT + '/packs-tv-halloween.png' });
+const pc = await mk('pc', { width: 1280, height: 720 });
+await pc.goto('http://localhost:8765/'); await pc.click('#bScenes'); await pc.screenshot({ path: OUT + '/packs-tv-sheet.png' });
+console.log('errors:', errs.length ? errs : 'none');
+await b.close();
+})();

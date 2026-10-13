@@ -1,0 +1,48 @@
+// Test de bout en bout : couleurs. Lancer d'abord « npm run serveurs » dans outils/.
+const { chromium } = require('playwright');
+const path = require('path');
+const ROOT = path.resolve(__dirname, '..', '..');
+const OUT = path.join(__dirname, 'captures');
+require('fs').mkdirSync(OUT, { recursive: true });
+(async () => {
+const b = await chromium.launch({ args: ['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream','--autoplay-policy=no-user-gesture-required'] });
+const errs = [];
+const mk = async (name, vp, mobile) => { const c = await b.newContext({ viewport: vp, isMobile: !!mobile, hasTouch: !!mobile, permissions: ['microphone'] });
+  await c.addInitScript(() => { try { localStorage.setItem('jdl.welcomed', '1'); } catch (e) {} window.JDL_PEER = { host: '127.0.0.1', port: 9000, path: '/', secure: false, config: { iceServers: [] } }; window.JDL_MQTT = 'ws://127.0.0.1:8884/mqtt'; });
+  const p = await c.newPage(); p.on('pageerror', e => errs.push(name + ': ' + e.message));
+  await p.route(/fonts\.(googleapis|gstatic)/, r => r.abort());
+  await p.route(/cdn\.jsdelivr\.net/, r => { const u = r.request().url(); const f = u.includes('peerjs') ? 'peerjs.min.js' : u.includes('qrcode') ? 'qrcode.js' : u.includes('mqtt') ? 'mqtt.min.js' : u.includes('Presets') ? 'butterchurnPresets.min.js' : 'butterchurn.min.js'; r.fulfill({ path: ROOT + '/vendor/' + f, contentType: 'application/javascript' }); });
+  return p; };
+const tv = await mk('tv', { width: 1280, height: 720 });
+await tv.goto('http://localhost:8765/?ecran=C0LRS');
+const ph = await mk('phone', { width: 390, height: 844 }, true);
+await ph.goto('http://localhost:8765/?r=C0LRS');
+await ph.waitForFunction(() => document.getElementById('remoteStatus').textContent.startsWith('Connecté'), null, { timeout: 20000 });
+await ph.keyboard.press('Escape'); await ph.click('#bSource'); await ph.click('#bDemo'); await ph.waitForTimeout(800);
+await ph.click('#bPal');
+console.log('panel open:', await ph.$eval('#palSheet', e => !e.hidden), '| swatches:', await ph.$$eval('[data-pal]', bs => bs.map(b => b.textContent).join(', ')));
+console.log('scroll width', await ph.evaluate(() => document.documentElement.scrollWidth));
+await ph.screenshot({ path: OUT + '/colors-phone.png', fullPage: false });
+await ph.click('[data-pal="feu"]'); await ph.waitForTimeout(800);
+console.log('feu → phone', await ph.textContent('#bPal'), '| tv', await tv.textContent('#bPal'));
+// my colours: club colours green + white? use green, gold, blue
+await ph.fill('#myC1', '#00a651'); await ph.fill('#myC2', '#ffcc00'); await ph.fill('#myC3', '#1e4dd8');
+await ph.click('#bMine'); await ph.waitForTimeout(800);
+console.log('mine → phone', await ph.textContent('#bPal'), '| tv', await tv.textContent('#bPal'));
+await ph.$eval('#toneSat', e => { e.value = 140; e.dispatchEvent(new Event('input', { bubbles: true })); });
+await ph.$eval('#toneLum', e => { e.value = 120; e.dispatchEvent(new Event('input', { bubbles: true })); });
+await ph.waitForTimeout(800);
+console.log('tone → tv filter:', await tv.$eval('#stage', e => e.style.filter), '| phone labels:', await ph.textContent('#toneSatV'), '/', await ph.textContent('#toneLumV'));
+await ph.screenshot({ path: OUT + '/colors-phone-mine.png' });
+await tv.waitForTimeout(1500); await tv.screenshot({ path: OUT + '/colors-tv-mine.png' });
+await ph.$eval('#toneHue', e => { e.value = 90; e.dispatchEvent(new Event('input', { bubbles: true })); }); await ph.waitForTimeout(600);
+console.log('hue +90 → tv filter:', await tv.$eval('#stage', e => e.style.filter));
+await ph.click('#toneReset'); await ph.waitForTimeout(600);
+console.log('reset → tv filter:', JSON.stringify(await tv.$eval('#stage', e => e.style.filter)));
+await ph.keyboard.press('Escape');
+console.log('closed:', await ph.$eval('#palSheet', e => e.hidden));
+await ph.reload(); await ph.waitForTimeout(800);
+console.log('after reload:', await ph.textContent('#bPal'));
+console.log('errors:', errs.length ? errs : 'none');
+await b.close();
+})();

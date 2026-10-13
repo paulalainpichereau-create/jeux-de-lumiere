@@ -1,0 +1,19 @@
+{
+  "name": "jeux-de-lumiere-outils",
+  "private": true,
+  "description": "Outils de développement : serveurs locaux de test, tests de bout en bout, cache hors connexion.",
+  "scripts": {
+    "serveurs": "node serveurs-test.cjs",
+    "tests": "node tests/tout.cjs",
+    "publier": "node publier.cjs"
+  },
+  "dependencies": {
+    "aedes": "^0.51.3",
+    "express": "^4.21.2",
+    "mqtt": "^5.10.1",
+    "peer": "^1.0.2",
+    "playwright": "^1.56.0",
+    "websocket-stream": "^5.5.2",
+    "ws": "^8.18.0"
+  }
+}
