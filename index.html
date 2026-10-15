@@ -269,6 +269,8 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
 #bIdent { margin-bottom: 8px; }
 .screen-num { position: fixed; inset: 0; z-index: 8; display: grid; place-items: center; pointer-events: none;
   font: 800 min(60vh, 60vw)/1 var(--f-display); color: #fff; text-shadow: 0 0 40px rgba(255, 77, 148, 0.9), 0 0 120px rgba(61, 230, 255, 0.6); background: rgba(7, 6, 14, 0.55); }
+.link-info { font: 500 13px/1.4 var(--f-mono); color: var(--ink); }
+.link-info.ok { color: #6ee7a8; } .link-info.mid { color: #ffcf5c; } .link-info.slow { color: #ff7a7a; }
 /* packs */
 .packs { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; margin-bottom: 6px; }
 .packs .choice { min-height: 0; margin: 0; padding: 10px 14px; }
@@ -512,6 +514,11 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
       <label class="slider" for="gain">Sensibilité
         <input id="gain" type="range" min="50" max="200" value="100">
       </label>
+      <label class="slider" for="delay">Décalage lumière / son
+        <input id="delay" type="range" min="0" max="500" step="10" value="0">
+      </label>
+      <p class="fit" id="delayInfo">Les lumières suivent le son tout de suite.</p>
+      <p class="fit">Avec une enceinte Bluetooth, le son sort un peu en retard : si les lumières arrivent avant la musique, retardez-les jusqu’à ce que tout tombe juste (souvent 150 à 250 ms).</p>
       <h3>Télévision</h3>
       <div class="fields">
         <button type="button" id="bCastTV" class="primary" hidden>Caster sur Chromecast</button>
@@ -590,6 +597,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
         <button type="button" id="bConnect" class="primary">Se connecter</button>
       </div>
       <p class="fit" id="remoteStatus" role="status" aria-live="polite"></p>
+      <p class="fit link-info" id="linkInfo" hidden></p>
       <div class="fields">
         <button type="button" id="bRemoteMic" hidden>Lancer le micro</button>
         <button type="button" id="bDisconnect" hidden>Déconnecter</button>
@@ -787,6 +795,8 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
   let pal = PALETTES[0];
   // several screens: each one can take its own colour of the palette (offset), all turning a step on the beats
   const MS = { on: false, i: 0, n: 1, k: 0, off: 0 };
+  // sound → light offset (a Bluetooth speaker plays the sound late): the analysis is held back by DELAY.ms
+  const DELAY = { ms: 0, q: [], last: null };
   // one scene per screen: own = '' (follows the others), 'auto' (its own Auto) or a scene id;
   // common = the scene shared by the screens that follow; list = the party's screens (on the remote and the main screen)
   const SCR = { own: '', common: null, list: [] };
@@ -859,16 +869,57 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
   // and is dropped after 8 s of silence (the screens and the phone then find each other again)
   function watchConn(conn) {
     conn._last = performance.now();
-    conn.on('data', () => { conn._last = performance.now(); });
-    conn.on('open', () => { conn._last = performance.now(); });
+    conn.on('data', (m) => {
+      const now = performance.now();
+      conn._last = now;
+      // the heartbeat also measures the delay: the other side sends the time straight back
+      if (m && m.t === 'hb' && typeof m.ts === 'number') { try { conn.send({ t: 'hbr', ts: m.ts }); } catch (e) {} }
+      else if (m && m.t === 'hbr' && typeof m.ts === 'number') {
+        const rtt = Math.max(0, now - m.ts);
+        conn._rtt = conn._rtt == null ? rtt : conn._rtt * 0.6 + rtt * 0.4;
+      }
+    });
+    conn.on('open', () => { conn._last = performance.now(); linkKind(conn); });
+  }
+  // what kind of path the link took: direct on the same network, direct over the internet, or through a relay
+  async function linkKind(conn) {
+    const pc = conn && conn.peerConnection;
+    if (!pc || !pc.getStats) return;
+    try {
+      const stats = await pc.getStats();
+      let pair = null;
+      stats.forEach((r) => { if (r.type === 'transport' && r.selectedCandidatePairId) pair = stats.get(r.selectedCandidatePairId); });
+      if (!pair) stats.forEach((r) => { if (r.type === 'candidate-pair' && (r.nominated || r.selected) && r.state === 'succeeded') pair = r; });
+      const local = pair && stats.get(pair.localCandidateId), remote = pair && stats.get(pair.remoteCandidateId);
+      if (!local) return;
+      const types = [local.candidateType, remote && remote.candidateType];
+      conn._kind = types.includes('relay') ? 'relay' : types.every((t) => t === 'host') ? 'lan' : 'net';
+    } catch (e) {}
+  }
+  function linkText(conn) {
+    if (!conn || !conn.open || conn._rtt == null) return null;
+    const ms = Math.round(conn._rtt / 2);   // one way ≈ half the round trip
+    const kind = { lan: 'directe, même Wi-Fi', net: 'directe par internet', relay: 'par un relais internet' }[conn._kind] || 'directe';
+    const q = ms < 40 ? 'ok' : ms < 120 ? 'mid' : 'slow';
+    const word = { ok: 'excellente', mid: 'correcte', slow: 'lente' }[q];
+    return { q, text: 'Liaison ' + word + ' : ' + ms + ' ms, ' + kind + (q === 'slow' ? '. Mettez les appareils sur le même Wi-Fi si possible.' : '.') };
+  }
+  function showLink() {
+    const el = $('linkInfo');
+    const t = linkText(RC.conn);
+    if (!t) { el.hidden = true; return; }
+    el.hidden = false; el.className = 'fit link-info ' + t.q; el.textContent = (RC.role === 'screen' && !RC.follower ? 'Téléphone · ' : '') + t.text;
+    if (RC.role === 'screen' && !RC.follower) $('screenStatus').textContent = 'Téléphone connecté · ' + Math.round(RC.conn._rtt / 2) + ' ms';
   }
   setInterval(() => {
     const now = performance.now();
     for (const c of [RC.conn, ...RC.followers]) {
       if (!c || !c.open) continue;
       if (now - (c._last || now) > 8000) { try { c.close(); } catch (e) {} continue; }
-      try { c.send({ t: 'hb' }); } catch (e) {}
+      try { c.send({ t: 'hb', ts: now }); } catch (e) {}
+      if (!c._kind || Math.random() < 0.2) linkKind(c);
     }
+    showLink();
   }, 2000);
   const r2 = (x) => Math.round(x * 100) / 100;
   function sendFrame(tb, tm, th, now, isBeat) {
@@ -1170,6 +1221,21 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     } else {
       TS.fill(0); WV.fill(0);
     }
+    // the delay is applied where the lights are drawn (screens), never on a remote: it sends the sound as heard
+    let delayedBeat = false;
+    const holding = DELAY.ms > 0 && (live || rem) && RC.role !== 'remote';
+    if (holding) {
+      const q = DELAY.q;
+      q.push({ t: now, tb, tm, th, loud: S.loud, ts: Float32Array.from(TS), wv: Float32Array.from(WV), beat: rem && REM.beat });
+      if (rem) REM.beat = false;
+      let pick = null;
+      while (q.length && q[0].t <= now - DELAY.ms) { const x = q.shift(); if (x.beat) delayedBeat = true; pick = x; }
+      if (q.length > 240) q.splice(0, q.length - 240);
+      if (pick) DELAY.last = pick;
+      const x = pick || DELAY.last;
+      if (x) { tb = x.tb; tm = x.tm; th = x.th; S.loud = x.loud; TS.set(x.ts); WV.set(x.wv); }
+      else { tb = tm = th = 0; TS.fill(0); WV.fill(0); }
+    } else if (DELAY.q.length) { DELAY.q.length = 0; DELAY.last = null; }
     const up = 1 - Math.exp(-dt * 30), dn = 1 - Math.exp(-dt * 7);
     const sm = (cur, tgt) => cur + (tgt - cur) * (tgt > cur ? up : dn);
     S.bass = sm(S.bass, tb); S.mid = sm(S.mid, tm); S.high = sm(S.high, th);
@@ -1182,7 +1248,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     const heard = live || rem;
     if (heard && now - AG.last > 4000) BPM.iv.length = 0; // music stopped: forget the old tempo
     let isBeat;
-    if (rem) { isBeat = REM.beat; REM.beat = false; } // the phone detects the beats
+    if (rem) { isBeat = holding ? delayedBeat : REM.beat; REM.beat = false; } // the phone detects the beats
     else isBeat = tb > AG.prev + 0.015 && tb > 0.4 && tb > AG.avg * 1.2 + 0.05 && now - AG.last > 280;
     if (live && RC.conn && RC.role === 'remote') sendFrame(tb, tm, th, now, isBeat);
     if (isBeat) {
@@ -2702,6 +2768,14 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
   bNext.addEventListener('click', () => playFile(F.i + 1));
   fileIn.addEventListener('change', () => { const files = Array.from(fileIn.files); fileIn.value = ''; if (files.length) loadFiles(files); });
   $('gain').addEventListener('input', (e) => { S.gain = Number(e.target.value) / 100; store.set('gain', e.target.value); });
+  function setDelay(ms, sync = true) {
+    DELAY.ms = clamp(Math.round(Number(ms) / 10) * 10 || 0, 0, 500);
+    $('delay').value = String(DELAY.ms);
+    $('delayInfo').textContent = DELAY.ms ? 'Les lumières attendent ' + DELAY.ms + ' ms avant de suivre le son.' : 'Les lumières suivent le son tout de suite.';
+    store.set('delay', String(DELAY.ms));
+    if (sync) remoteSync();
+  }
+  $('delay').addEventListener('input', (e) => setDelay(e.target.value));
   document.querySelectorAll('[data-scene]').forEach((b) => b.addEventListener('click', () => chooseScene(b.dataset.scene)));
   window.addEventListener('dragover', (e) => e.preventDefault());
   window.addEventListener('drop', (e) => {
@@ -3146,7 +3220,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     return c;
   }
   function stateForRemote() {
-    return { sel, pack: pack.id, palette: pal.id, mine: MINE.cols || null, tone: Object.assign({}, TONE), multiHue: MS.on, tile: Object.assign({}, TILE), autoSet: [...autoSet], opt: { text: OPT.text, mode: OPT.mode, cd: OPT.cd, strobe: OPT.strobe, guests: GU.on, guestQr: GU.qr, phoneFx } };
+    return { sel, pack: pack.id, palette: pal.id, mine: MINE.cols || null, tone: Object.assign({}, TONE), multiHue: MS.on, tile: Object.assign({}, TILE), delay: DELAY.ms, autoSet: [...autoSet], opt: { text: OPT.text, mode: OPT.mode, cd: OPT.cd, strobe: OPT.strobe, guests: GU.on, guestQr: GU.qr, phoneFx } };
   }
   function setBadge(text) { remoteBadge.hidden = !text; remoteBadge.textContent = text || ''; }
   function rcReset() {
@@ -3181,6 +3255,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     if (typeof m.pack === 'string' && PACK_BY_ID[m.pack]) setPack(m.pack, { quiet: true, keepPalette: true });
     if (Array.isArray(m.mine)) loadMine(m.mine);
     if (m.tile && typeof m.tile === 'object') setTile(m.tile, false);
+    if (typeof m.delay === 'number') setDelay(m.delay, false);
     if (typeof m.multiHue === 'boolean' && m.multiHue !== MS.on) {
       MS.on = m.multiHue; $('multiHue').checked = MS.on; MS.k = 0;
       if (RC.role === 'screen' && !RC.follower) sendPlaces();
@@ -3202,7 +3277,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     }
   }
   function onRemoteMessage(m) {
-    if (!m || typeof m !== 'object' || RC.role !== 'screen' || m.t === 'hb') return;
+    if (!m || typeof m !== 'object' || RC.role !== 'screen' || m.t === 'hb' || m.t === 'hbr') return;
     if (m.t === 'f') {
       if (!Array.isArray(m.ts) || m.ts.length !== NB || !Array.isArray(m.wv) || m.wv.length !== 64) return;
       REM.frame = m; REM.at = performance.now(); if (m.beat) REM.beat = true;
@@ -3259,10 +3334,28 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
       clientId: 'jdl-ecran-' + newCode().toLowerCase(), clean: true, keepalive: 30, reconnectPeriod: 3000, connectTimeout: 10000
     });
     RC.mq = c;
-    c.on('connect', () => c.subscribe(mqTopic(code)));
+    // the relay's delay: this screen times a message to itself (out and back ≈ what the iPhone's music takes to arrive)
+    const me = newCode();
+    const pingTopic = mqTopic(code) + '/p';
+    c.on('connect', () => { c.subscribe(mqTopic(code)); c.subscribe(pingTopic); });
+    const pingT = setInterval(() => {
+      if (RC.mq !== c) { clearInterval(pingT); return; }
+      if (c.connected && RC.iosAt) { try { c.publish(pingTopic, JSON.stringify({ id: me, ts: performance.now() })); } catch (e) {} }
+    }, 4000);
     c.on('message', (topic, buf) => {
       if (RC.mq !== c) return;
       let m; try { m = JSON.parse(new TextDecoder().decode(buf)); } catch (e) { return; }
+      if (topic === pingTopic) {
+        if (m && m.id === me && typeof m.ts === 'number') {
+          const rtt = performance.now() - m.ts;
+          RC.mqRtt = RC.mqRtt == null ? rtt : RC.mqRtt * 0.6 + rtt * 0.4;
+          if (RC.iosAt) {
+            const ms = Math.round(RC.mqRtt);
+            $('screenStatus').textContent = 'iPhone connecté · relais internet ~' + ms + ' ms' + (ms > 250 ? ' (lent : réglez le décalage dans Plus si besoin)' : '');
+          }
+        }
+        return;
+      }
       if (!m || m.t !== 'f') return;
       if (!RC.iosAt) iphoneState(true);
       RC.iosAt = performance.now();
@@ -4022,6 +4115,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
   // first visit, unless this page was opened as a TV screen or from a remote's QR code
   if (!store.get('welcomed') && !document.body.classList.contains('cast-screen') && !document.body.classList.contains('guest-mode') && !RC.role && remoteEl.hidden) openWelcome();
 
+  setDelay(store.get('delay') || 0, false);
   const savedGain = Number(store.get('gain'));
   if (savedGain >= 50 && savedGain <= 200) { $('gain').value = String(savedGain); S.gain = savedGain / 100; }
   setParty(false);
