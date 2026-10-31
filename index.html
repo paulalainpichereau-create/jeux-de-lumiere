@@ -1859,7 +1859,9 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
   const GHOSTS = Array.from({ length: 3 }, (_, i) => ({ x: rnd(0, 1), y: rnd(0.35, 0.6), v: rnd(0.03, 0.06) * (i % 2 ? -1 : 1), ph: rnd(0, 6.3), boo: 0 }));
   const CLOUDS = Array.from({ length: 4 }, () => ({ x: rnd(0, 1), y: rnd(0.12, 0.38), w: rnd(0.18, 0.32), v: rnd(0.008, 0.02) }));
   const EYES = Array.from({ length: 6 }, () => ({ x: rnd(0.05, 0.95), y: rnd(0.74, 0.82), open: 0, next: rnd(0.5, 4), hue: Math.random() < 0.5 ? 50 : 100 }));
-  const PUMP = [0, 0, 0], HOP = [0, 0, 0], VHOP = [0, 0, 0];
+  const PUMP = [0, 0, 0], HOP = [0, 0, 0], VHOP = [0, 0, 0], PBASS = [0, 0, 0];
+  // each pumpkin listens to its own part of the bass: the deepest (kick) for the middle one, the others either side
+  const PUMP_BANDS = [[6, 9], [0, 4], [3, 7]];   // bands of the 48-band spectrum (40 Hz → 14 kHz, log)
   let pumpTurn = 0, ghostTurn = 0, bolt = null, boltA = 0, lastBolt = -10, toxic = 0;
   // two dead trees, branches made once (unit coordinates; y grows upwards)
   function makeTree(seed) {
@@ -2035,17 +2037,24 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
       ctx.fillStyle = 'rgb(255,60,60)'; for (const d of [-1, 1]) { ctx.beginPath(); ctx.arc(sx + d * r * 0.3, sy + r * 0.45, r * 0.12, 0, 6.283); ctx.fill(); }
     });
 
-    // pumpkins: they hop on the beat in turn, candles flicker, faces go green after lightning
-    if (S.beatFlag) { const i = pumpTurn++ % 3; PUMP[i] = 1; VHOP[i] = m * (0.5 + 0.4 * S.bass); }
+    // pumpkins follow the bass: each one swells, lights its candle and opens its mouth with its part of the bass,
+    // and sinks back into the dark between the kicks; they still hop on the beat in turn; green after lightning
+    if (S.beatFlag) { const i = pumpTurn++ % 3; PUMP[i] = 1; VHOP[i] = m * (0.35 + 0.35 * S.bass); }
     [0.2, 0.5, 0.8].forEach((px, i) => {
+      const [b0, b1] = PUMP_BANDS[i];
+      let band = 0; for (let j = b0; j <= b1; j++) band = Math.max(band, S.spec[j]);
+      const tgt = clamp(band * 0.7 + S.bass * 0.4, 0, 1);
+      PBASS[i] += (tgt - PBASS[i]) * (1 - Math.exp(-dt * (tgt > PBASS[i] ? 28 : 6)));   // quick to light, slower to fade
+      const pb = Math.pow(PBASS[i], 1.4);
       PUMP[i] *= Math.exp(-dt * 2.5);
       VHOP[i] -= m * 3 * dt; HOP[i] = Math.max(0, HOP[i] + VHOP[i] * dt); if (HOP[i] === 0) VHOP[i] = Math.max(0, VHOP[i]);
-      const flick = 0.85 + 0.15 * Math.sin(now * 23 + i * 5) * Math.sin(now * 37 + i);
-      const lit = (0.3 + 0.7 * Math.max(PUMP[i], S.bass * 0.6)) * flick;
-      const x = W * px, r = m * (i === 1 ? 0.1 : 0.078), y = H * 0.86 - HOP[i];
+      const flick = 0.9 + 0.1 * Math.sin(now * 23 + i * 5) * Math.sin(now * 37 + i);
+      const lit = clamp((0.12 + 0.88 * Math.max(pb, PUMP[i] * 0.5)) * flick, 0, 1);
+      const x = W * px, r = m * (i === 1 ? 0.1 : 0.078) * (1 + 0.16 * pb * MOT), y = H * 0.86 - HOP[i];
       const sq = 1 + Math.min(0.15, VHOP[i] / m * 0.1);           // stretch while jumping
+      const mouth = 1 + 0.9 * pb;                                  // the mouth opens with the bass
       const face = toxic > 0.1 ? [120, 255, 90] : [255, 200 + 40 * lit, 90];
-      glow(x, y, r * 2.6, (a) => (toxic > 0.1 ? `rgba(80,255,80,${a * 0.4 * lit})` : `rgba(255,120,20,${a * 0.45 * lit})`), 1);
+      glow(x, y, r * (1.6 + 2.4 * lit), (a) => (toxic > 0.1 ? `rgba(80,255,80,${a * 0.45 * lit})` : `rgba(255,120,20,${a * 0.6 * lit})`), 1);
       over(() => {
         ctx.save(); ctx.translate(x, y); ctx.scale(1 / sq, sq);
         ctx.fillStyle = `hsl(26,90%,${20 + 20 * lit}%)`;
@@ -2054,8 +2063,8 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
         ctx.fillStyle = `rgba(${face[0]},${face[1] | 0},${face[2]},${0.35 + 0.65 * lit})`;
         for (const d of [-1, 1]) { ctx.beginPath(); ctx.moveTo(d * r * 0.42, -r * 0.12); ctx.lineTo(d * r * 0.18, -r * 0.12); ctx.lineTo(d * r * 0.3, -r * 0.42); ctx.closePath(); ctx.fill(); }
         ctx.beginPath(); ctx.moveTo(-r * 0.55, r * 0.15);
-        for (let k = 0; k <= 6; k++) ctx.lineTo(-r * 0.55 + k * r * 0.183, r * (k % 2 ? 0.28 : 0.42));
-        ctx.lineTo(r * 0.55, r * 0.15); ctx.quadraticCurveTo(0, r * 0.62, -r * 0.55, r * 0.15); ctx.fill();
+        for (let k = 0; k <= 6; k++) ctx.lineTo(-r * 0.55 + k * r * 0.183, r * (0.15 + (k % 2 ? 0.13 : 0.27) * mouth));
+        ctx.lineTo(r * 0.55, r * 0.15); ctx.quadraticCurveTo(0, r * (0.15 + 0.47 * mouth), -r * 0.55, r * 0.15); ctx.fill();
         ctx.restore();
       });
     });
