@@ -3735,7 +3735,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
       setTimeout(() => { if (el.parentNode) el.remove(); GU.showing = false; showNextGuest(); }, 650);
     }, hold);
   }
-  function burst(e) {
+  function emojiBurst(e) {
     const box = $('guestFx');
     if (box.childElementCount > 40) return;
     for (let i = 0; i < 3; i++) {
@@ -3755,7 +3755,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     let m; try { m = JSON.parse(new TextDecoder().decode(raw)); } catch (e) { return; }
     const ok = acceptGuest(m, performance.now());
     if (!ok) return;
-    if (ok.t === 'react') { burst(ok.e); return; }
+    if (ok.t === 'react') { emojiBurst(ok.e); return; }
     if (GU.queue.length >= 12) GU.queue.shift();
     GU.queue.push(ok); showNextGuest();
   }
