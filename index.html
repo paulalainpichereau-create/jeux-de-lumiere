@@ -689,7 +689,7 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
       <p class="fit">Un pack enchaîne tout seul ses scènes et ses couleurs au rythme de la musique, avec des scènes calmes quand elle est douce. Ou touchez une seule scène ; l’étoile la met dans « Tout mélanger ».</p>
       <div id="screensBox" hidden>
         <h3>Écrans</h3>
-        <p class="fit">Choisissez ce que montre chaque écran relié. « Comme les autres écrans » suit les choix ci-dessous ; une scène précise ou « Auto » lui donne son propre spectacle. Musique et couleurs restent communes.</p>
+        <p class="fit">Choisissez ce que montre chaque écran relié. « Comme les autres écrans » suit les choix ci-dessous (ceux de ce téléphone) ; une scène précise ou « Auto » lui donne son propre spectacle. Musique et couleurs restent communes.</p>
         <div id="screensList"></div>
         <button type="button" id="bIdent">Afficher le numéro sur chaque écran</button>
       </div>
@@ -3468,7 +3468,8 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
   }
   function paintScreens() {
     const box = $('screensBox'), root = $('screensList');
-    const show = SCR.list.length >= 2 && (RC.role === 'remote' || (RC.role === 'screen' && !RC.follower));
+    // the remote can give its screen(s) their own scene as soon as one is connected (the phone keeps the shared one)
+    const show = (RC.role === 'remote' && SCR.list.length >= 1) || (RC.role === 'screen' && !RC.follower && SCR.list.length >= 2);
     box.hidden = !show;
     if (!show) return;
     // same screens as before: only refresh the choices (never rebuild under the finger)
