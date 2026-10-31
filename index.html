@@ -2819,7 +2819,11 @@ body.guest-mode .deck, body.guest-mode .hud, body.guest-mode #welcome, body.gues
     if (!palEl.hidden) { if (k === 'escape') closePal(); return; }
     if (!installEl.hidden) { if (k === 'escape') closeInstall(); return; }
     if (!tileEl.hidden) { if (k === 'escape') closeTile(); return; }
-    if (e.target instanceof HTMLInputElement && /^(text|time)$/.test(e.target.type)) return; // typing is not a shortcut
+    // typing is never a shortcut: text fields, message boxes, lists, and the whole guest page
+    const tg = e.target;
+    if (tg instanceof HTMLTextAreaElement || tg instanceof HTMLSelectElement || (tg && tg.isContentEditable)) return;
+    if (tg instanceof HTMLInputElement && !/^(button|checkbox|radio|range|color|submit)$/.test(tg.type)) return;
+    if (document.body.classList.contains('guest-mode')) return;
     const onControl = e.target instanceof Element && e.target.closest('button,input');
     if (k === ' ' && !onControl) { e.preventDefault(); togglePause(); }
     else if (k === 'f') bFull.click();
